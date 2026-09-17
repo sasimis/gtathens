@@ -1,7 +1,8 @@
 import React, { Suspense, useEffect, useState } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import { Physics, RigidBody, useRapier } from '@react-three/rapier'
+import { Physics, useRapier } from '@react-three/rapier'
 import City from './components/City'
+import Ground from './components/Ground'
 import Player from './components/Player'
 import Car, { ParkedCars, PLAYER_COLLISION_GROUPS } from './components/Car'
 import MenuCamera from './components/MenuCamera'
@@ -18,10 +19,7 @@ import SickInventory from './ui/SickInventory'
 import useGameStore, { Phase } from './store/useGameStore'
 import './ui/ui.css'
 
-// Collision groups (Rapier): bits 0-15 = membership, bits 16-31 = filter.
-const GROUP_GROUND = 0x0001
-const GROUP_BUILDING = 0x0008
-const GROUND_COLLISION_GROUPS = GROUP_GROUND | (0x000F << 16) // ground collides with all
+// (Ground collision groups live in components/Ground.jsx, with the pavement.)
 
 const DPR_BY_QUALITY = { low: 0.66, medium: 1, high: 1.75 }
 const FOG_BY_QUALITY = { low: [120, 700], medium: [260, 1500], high: [320, 2600] }
@@ -35,6 +33,19 @@ const PhysicsProbe = () => {
   }, [world])
   return null
 }
+
+/** Exposes the three scene (read-only) for the smoke test's material probes —
+ * pavement/road texel density and polygonOffset are invisible in a state dump. */
+const SceneProbe = () => {
+  const scene = useThree((s) => s.scene)
+  useEffect(() => {
+    window.__gtathensScene = scene
+    return () => { delete window.__gtathensScene }
+  }, [scene])
+  return null
+}
+
+
 
 /** Keeps the canvas camera FOV in sync with the graphics/camera settings. */
 const FovSync = () => {
@@ -83,6 +94,7 @@ const Scene = () => {
 
   return (
     <>
+      <SceneProbe />
       <FovSync />
       <MenuCamera active={menuCamActive} />
       <DayNightCycle shadows={settings.shadows} />
@@ -98,13 +110,12 @@ const Scene = () => {
           <PhysicsProbe />
           <City />
 
-          {/* Walkable ground: top face exactly at y=0 so feet rest ON it. */}
-          <RigidBody type="fixed" colliders="cuboid" collisionGroups={GROUND_COLLISION_GROUPS}>
-            <mesh position={[0, -0.5, 0]} receiveShadow>
-              <boxGeometry args={[4000, 1, 4000]} />
-              <meshStandardMaterial color="#7d8f5e" />
-            </mesh>
-          </RigidBody>
+          {/* Walkable pavement: KayKit-derived material, collider top at y=0 so
+              feet/wheels rest on the visible surface. Slabs, grout and the
+              expansion joints all live in the baked texture on ONE mesh — no
+              overlay plane and no polygonOffset on the ground; see
+              components/Ground.jsx for why that made roads pop in late. */}
+          <Ground />
 
           {/* The on-foot player - unmounted the moment you climb into a car
               (the driven car then owns the follow camera + input). MUST be
