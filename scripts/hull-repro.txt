@@ -1,0 +1,10 @@
+rapier3d-compat init OK
+OLD nested: array length 8 (points 8) -> scaleVertices loops 2x (should be 8)
+OLD nested after scaleVertices: [null,null,null,null,null,null,null,null,null]
+NEW flat: array length 24 -> 8 points, all finite after scaling: true
+NEW ColliderDesc.convexHull(flat) -> OK (desc built)
+NEW world stepped with hull collider; colliders=1
+NEW collider half-extents: "n/a"
+OLD ColliderDesc.convexHull(nested) -> desc object (lazy, no panic yet)
+OLD createCollider(nested hull) -> PANIC: Error: expected instance of t
+done

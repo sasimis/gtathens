@@ -1,0 +1,60 @@
+
+--- T1 - build from real map_data.json (drivable ways) ---
+roads in data: 266, drivable segments: 259
+graph: 276 nodes, 302 edges (259 segment + 43 stitched), avg degree 2.19
+[PASS] graph is non-empty
+largest component: 97.8% of nodes
+[PASS] real road graph is near-fully connected (stitching worked) — the residual are isolated service ways — see STITCH_R docs
+[PASS] stitching actually did work (>= 20 stitched edges)
+
+--- T2 - A* across town on real roads ---
+from (224.9, -75.1) to (-540.7, -66.1), straight 765.7 m
+route: found=true length=901.9 m, 44 nodes, expanded 74, 0.7 ms
+[PASS] long route found
+[PASS] detour ratio sane (1.18x straight)
+
+--- T3 - route contiguity (every hop is one graph edge) ---
+hops: 43, min 3.4 m, max 87.8 m
+[PASS] no zero-length hops
+[PASS] hops are single edges (<= longest segment 120.4 m + stitch slop)
+[PASS] polylineLength agrees with the reported length
+
+--- T4 - nearest() snapping ---
+[PASS] exact node snaps at distance 0 — id 123
+[PASS] midpoint snaps to SOME node — dist 47.6 m
+[PASS] empty graph: nearest returns null (no garbage)
+
+--- T5 - unreachable goal is PARTIAL, not garbage ---
+island route: found=false partial=true goalDist=100.0 length=60.0
+[PASS] unreachable goal: found=false
+[PASS] unreachable goal: partial=true with positive goalDist
+[PASS] partial route still starts on the right island (no garbage coordinates) — first [0,0]
+
+--- T6 - randomRoute: deterministic closed loop for a seed ---
+[PASS] seed 7 gives a route — 461.9 m, 35 pts
+[PASS] seed 7 is reproducible
+[PASS] loop is closed (first === last)
+[PASS] different seed gives a different (or at least a valid) route
+
+--- T7 - sampleRoute walks the route ---
+s=0 -> (139.0, 65.2) yaw 0.52; mid -> (50.1, -65.2); end done=true
+[PASS] sample at 0 starts on the route
+[PASS] sample at midpoint is between start and end
+[PASS] past-the-end sample reports done=true at the last point
+[PASS] yaw is finite and bounded
+
+--- T8 - stitch=0 on the REAL graph (must never be better than stitched) ---
+stitch=0: 276 nodes, 259 edges, largest component 27.5% (stitched: 97.8%)
+[PASS] stitching did not make the real graph WORSE
+stitch=0 route: found=false partial=true length=180.6 m
+[PASS] stitch=0 either routes fine (ways share nodes) or degrades to partial — never crashes
+
+--- T9 - module cache: one pathfinder per (data, filter) ---
+[PASS] same data + same filter === same instance (WeakMap key)
+[PASS] DIFFERENT data object builds a DIFFERENT instance
+[PASS] cached graph is equivalent to the manually built one — 276/302 vs 276/302
+[PASS] walkable filter builds its own graph (footways add nodes) — walk 606 vs drivable 276
+
+--- verdict ---
+ALL CHECKS PASSED
+done

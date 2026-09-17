@@ -1,0 +1,48 @@
+# dependencies
+node_modules/
+# build output
+dist/
+dist-ssr/
+*.local
+# dev logs & throwaway probe scripts at repo root (scripts/ is kept)
+*.log
+Npcs.out
+build-*.txt
+build-*.log
+inspect_fbx.mjs
+probe.mjs
+vite-run.log
+dev-*.log
+smoke-*.log
+npm-*.log
+recast-install.log
+convert.err
+convert.log
+# vite
+.vite/
+# editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+null
+# env / secrets — never commit tokens
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# local dev profiles / throwaway chrome profiles for smoke tests
+.chrome-profile/
+smoke-report.txt
+# large raw sources kept locally (converted artifacts live in public/)
+kenney_tmp/
+# lmstudio bionic scaffolding (not part of the game repo)
+.internal/
+conversations/
+working-directories/

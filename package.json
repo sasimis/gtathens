@@ -1,0 +1,32 @@
+{
+  "name": "athens-low-poly-gta",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.20.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@react-three/drei": "^9.88.0",
+    "@react-three/fiber": "^8.15.0",
+    "@react-three/rapier": "^1.5.0",
+    "@recast-navigation/core": "^0.43.1",
+    "@recast-navigation/three": "^0.43.1",
+    "framer-motion": "^13.2.0",
+    "howler": "^2.2.4",
+    "lucide-react": "^1.45.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.160.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/three": "^0.160.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "vite": "^5.0.0"
+  }
+}

@@ -1,0 +1,42 @@
+
+--- T1 - init + buildNavMesh ---
+ensureNavReady(): OK (wasm loaded from the @recast-navigation/wasm compat build)
+[PASS] T1 build succeeds — 86 polys, 72 ms
+path (-20,0)->(20,0): 41.53 m
+path along open ground: 40.00 m (expect ~40)
+[PASS] T4 building prism carves the mesh — detour 41.53 m > 40 m straight
+[PASS] ground is walkable
+
+--- T2 - walkableRadius units (2 m corridor between two areas) ---
+walkableRadius=2 (2 vox = 0.6 m/side): centre {"success":true,"onMesh":true,"nearestY":0.2}, south->north 80.00 m
+walkableRadius=5 (5 vox = 1.5 m/side): centre {"success":true,"onMesh":false,"nearestY":0.2}, south->north 129.49 m
+[PASS] walkableRadius is VOXELS — r=2 goes through, r=5 is pushed around
+
+--- T3 - walkableHeight units (head room under a slab whose underside is at 3 m) ---
+walkableHeight=9 (1.8 m) under a 3.0 m slab: {"success":true,"onMesh":true,"nearestY":0.2}
+walkableHeight=20 (4.0 m) under a 3.0 m slab: {"success":false,"onMesh":false,"nearestY":null}
+[PASS] walkableHeight is VOXELS
+
+--- T5 - a building interior must not be walkable (production geometry path) ---
+nearest walkable point to the building centre: none
+[PASS] interior is not walkable — no walkable poly anywhere near the centre
+[PASS] path detours around the block — 65.50 m (straight would be 60)
+[PASS] ground outside the wall is walkable
+
+--- T6 - city-scale build through buildNavGeometry + navConfig ---
+geometry: 120 prisms, 0 skipped, 3616 verts / 1568 tris
+[PASS] T6 city build succeeds — 1760 polys, 442 ms, pruned=false
+[PASS] long-range path found — 505.5 m in 1 ms, 11 waypoints
+[PASS] all waypoints sit on the mesh — worst offset 0.000 m
+[PASS] no walkable building interiors at city scale — building centre is not walkable
+[PASS] samplePath walks to the midpoint
+samplePath(mid) -> x -75.60, z 73.82, yaw 0.847
+[PASS] deterministic wander target — (-59.72, 27.89)
+[PASS] wander target is reproducible for a seed
+[PASS] T7 crowd moves agents along the mesh — 59.5 m total over 240 frames
+[PASS] T7 agents stay on the mesh — 10/10 on mesh
+[PASS] pruned mesh still routes — pruned=true, 505.5 m
+[PASS] pruning keeps interiors out
+
+ALL CHECKS PASSED
+done
