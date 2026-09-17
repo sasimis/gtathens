@@ -7,6 +7,7 @@ import SettingsMenu from './SettingsMenu'
 import PauseMenu from './PauseMenu'
 import Hud from './Hud'
 import StreetHUD from './StreetHUD'
+import Minimap from './Minimap'
 
 const MenuRoot = () => {
   const phase = useGameStore((s) => s.phase)
@@ -36,6 +37,7 @@ const MenuRoot = () => {
       </AnimatePresence>
       {phase === Phase.PLAYING && <Hud />}
       {phase === Phase.PLAYING && <StreetHUD />}
+      {phase === Phase.PLAYING && <Minimap />}
     </div>
   )
 }
