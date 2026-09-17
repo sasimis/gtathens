@@ -1,7 +1,4 @@
 // Shared gamepad helpers (W3C Standard mapping).
-// Used by Player (on foot) and CarDriver (driving) so controller support
-// stays consistent. All helpers tolerate a missing/disconnected pad.
-
 export const GP_DEADZONE = 0.18
 
 export const BTN = {
@@ -15,6 +12,12 @@ export const BTN = {
   RT: 7,
   BACK: 8,
   START: 9,
+  LS: 10,
+  RS: 11,
+  DPAD_UP: 12,
+  DPAD_DOWN: 13,
+  DPAD_LEFT: 14,
+  DPAD_RIGHT: 15,
 }
 
 export const applyDeadzone = (v, dz = GP_DEADZONE) => {
@@ -67,4 +70,23 @@ export const padEdge = (pad, i) => {
   const was = !!prev[i]
   prev[i] = held
   return held && !was
+}
+
+/** Trigger vibration / haptic rumble if supported by browser & controller */
+export const vibrateGamepad = (pad, durationMs = 150, weakMag = 0.5, strongMag = 0.5) => {
+  if (!pad) return
+  try {
+    if (pad.vibrationActuator && typeof pad.vibrationActuator.playEffect === 'function') {
+      pad.vibrationActuator.playEffect('dual-rumble', {
+        startDelay: 0,
+        duration: durationMs,
+        weakMagnitude: weakMag,
+        strongMagnitude: strongMag,
+      })
+    } else if (pad.hapticActuators && pad.hapticActuators[0] && typeof pad.hapticActuators[0].pulse === 'function') {
+      pad.hapticActuators[0].pulse(strongMag, durationMs)
+    }
+  } catch (e) {
+    /* ignore haptics unsupported */
+  }
 }
