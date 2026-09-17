@@ -1,22 +1,15 @@
-// SickInventory — the two "actually sick" surfaces the HUD chips don't cover:
-//   hold TAB  -> radial WEAPON WHEEL (framer-motion, like GTA V)
-//   press I   -> draggable weapon GRID (dnd-kit DnD + framer-motion springs)
-// Drag order in the grid IS the Q/E cycle order (store.cycleWeapon reads the
-// weapons array, not WEAPON_ORDER) — reordering has real gameplay effect.
-// The old SA panel's keyboard handling is superseded; clicking a slot equips.
 import React, { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DndContext, PointerSensor, useSensor, useSensors, useDraggable, useDroppable } from '@dnd-kit/core'
 import useGameStore, { Phase } from '../store/useGameStore'
 import { WEAPONS } from '../lib/weapons'
 import { audio } from '../lib/audio'
+import { BTN, getGamepad, padEdge } from '../lib/gamepad'
 
 const GLYPH = { fists: '✊', pistol: '🔫', smg: '💥' }
 const glyphFor = (id) => GLYPH[id] || '▦'
 const WHEEL_R = 130
 
-// One wheel segment: fans out from the center on open, highlights on hover,
-// equips on Tab release (or click). Positioned by angle — no CSS keyframes.
 const WheelSlot = ({ id, i, n, active, ammo, onHover }) => {
   const ang = (i / n) * Math.PI * 2 - Math.PI / 2
   const x = Math.cos(ang) * WHEEL_R
@@ -40,8 +33,6 @@ const WheelSlot = ({ id, i, n, active, ammo, onHover }) => {
   )
 }
 
-// A grid cell that is BOTH a drag source and a drop target (the store splices
-// `from` out and re-inserts before `to` — no swap).
 const GridSlot = ({ id, ammo, equipped, onEquip }) => {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id })
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id })
@@ -63,7 +54,6 @@ const GridSlot = ({ id, ammo, equipped, onEquip }) => {
   )
 }
 
-
 const SickInventory = () => {
   const phase = useGameStore((s) => s.phase)
   const money = useGameStore((s) => s.money ?? 0)
@@ -80,11 +70,6 @@ const SickInventory = () => {
   const tabDown = useRef(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
-  // Owns TAB (hold = wheel) and I (toggle grid). Inventory.jsx no longer
-  // listens for either, so the two surfaces never fight. Tab is a focus key:
-  // capture-phase listeners + preventDefault on BOTH edges, and the equip
-  // target is read from a ref (the keyup closure would otherwise hold the
-  // STALE hover from the keydown render and equip the wrong slot).
   const hoverRef = useRef(hover)
   hoverRef.current = hover
 
@@ -117,7 +102,7 @@ const SickInventory = () => {
         if (e.repeat) return
         const st = useGameStore.getState()
         if (st.phase !== Phase.PLAYING) return
-        if (tabDown.current) return // wheel owns Tab; I must not fight it
+        if (tabDown.current) return
         st.toggleInventory()
         try { audio.play('wheel') } catch {}
       }
@@ -135,8 +120,6 @@ const SickInventory = () => {
       }
     }
     const onBlur = () => {
-      // Alt-Tab away with the wheel held: drop the stuck-open overlay so it
-      // can never sit on screen as a phantom bar on return.
       tabDown.current = false
       setWheel(false)
     }
@@ -150,7 +133,35 @@ const SickInventory = () => {
     }
   }, [])
 
-  // Q/E or arrows sweep the wheel while it is held (no pointer needed).
+  // Gamepad controls for opening inventory & wheel / grid cycling
+  useEffect(() => {
+    let animId = null
+    const checkGamepadInv = () => {
+      const st = useGameStore.getState()
+      if (st.phase === Phase.PLAYING) {
+        const pad = getGamepad()
+        if (pad) {
+          if (padEdge(pad, BTN.BACK)) {
+            st.toggleInventory()
+            try { audio.play('wheel') } catch {}
+          } else if (st.inventoryOpen) {
+            const slotsList = ['fists', ...st.weapons.map((w) => w.id)]
+            if (padEdge(pad, BTN.DPAD_RIGHT) || padEdge(pad, BTN.RB)) {
+              st.cycleWeapon(1)
+            } else if (padEdge(pad, BTN.DPAD_LEFT) || padEdge(pad, BTN.LB)) {
+              st.cycleWeapon(-1)
+            } else if (padEdge(pad, BTN.B)) {
+              st.closeInventory()
+            }
+          }
+        }
+      }
+      animId = requestAnimationFrame(checkGamepadInv)
+    }
+    animId = requestAnimationFrame(checkGamepadInv)
+    return () => cancelAnimationFrame(animId)
+  }, [])
+
   useEffect(() => {
     if (!wheel) return
     const order = ['fists', ...weapons.map((w) => w.id)]
@@ -226,10 +237,10 @@ const SickInventory = () => {
               <span className="hp-track sick-hp-track">
                 <span className="hp-fill" style={{ width: `${health}%` }} />
               </span>
-              <span className="sick-hint">drag to reorder · Q/E follows this order · I close</span>
+              <span className="sick-hint">drag to reorder · Q/E / D-pad follows this order</span>
             </div>
             <div className="panel-actions">
-              <button className="btn btn-small" onClick={close}>Close (I)</button>
+              <button className="btn btn-small" onClick={close}>Close (I / B)</button>
             </div>
           </motion.div>
         </motion.div>

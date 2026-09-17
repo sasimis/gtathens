@@ -1,21 +1,4 @@
-// Audio singleton — the same shape as crashManager: module-level state,
-// mutated in place, imported by any system that needs to make noise.
-//
-// TWO buses, two libraries, deliberately split:
-//   2D/UI  -> howler.js  (fire, reload, pickup, door, wheel, crash, footsteps)
-//   3D     -> THREE.PositionalAudio on ONE shared AudioListener
-//             (drei's <PositionalAudio> builds its own listener PER INSTANCE —
-//             6 engine loops would stack 6 listeners on the camera. Here the
-//             listener is created once and every node shares its context.)
-//
-// Callers never touch THREE/Howler directly:
-//   audio.play('pickup')                    // 2D one-shot
-//   audio.engineUpdate(i, x, y, z, s, on)   // per frame, from ONE useFrame
-//   audio.step(gait)                        // footstep, rate follows gait
-//
-// Autoplay: browsers block audio until a user gesture. AudioSystem resumes
-// both contexts on the first pointerdown/keydown (the PLAY click covers it).
-// No per-frame allocation: engineUpdate writes into preallocated objects.
+// Audio singleton — module-level state, mutated in place, imported by any system that needs to make noise.
 import { Howl, Howler } from 'howler'
 import * as THREE from 'three'
 
@@ -25,27 +8,25 @@ const master = { v: 1 }
 const sfx = {}
 const TWO_D = {
   gunshot: 0.5,
-  shoot: 0.5, // alias of gunshot (WeaponController plays 'shoot')
-  melee: 0.5, // falls back to gunshot buffer at a lower rate
+  shoot: 0.5,
+  melee: 0.5,
   reload: 0.5,
   hit: 0.4,
   pickup: 0.4,
-  'pickup-money': 0.4, // alias of pickup (brighter rate at play time)
+  'pickup-money': 0.4,
   door: 0.5,
-  horn: 0.5, // city traffic horn one-shot (synthesized, see gen-sounds)
+  horn: 0.5,
   wheel: 0.35,
   footstep: 0.35,
-  'footstep-asphalt': 0.35, // alias of footstep (surface variation via rate)
-  'footstep-grass': 0.32, // alias of footstep (softer rate at play time)
-  screech: 0.4, // synth fallback when /sounds/screech.wav is missing
+  'footstep-asphalt': 0.35,
+  'footstep-grass': 0.32,
+  screech: 0.4,
   crash: 0.6,
-  ambient: 0.22, // real file (day bed); night bed is city-hum.wav
-  'city-day': 0.2, // alias of ambient (day bed, crossfaded by timeOfDay)
-  'city-night': 0.2, // alias of city-hum (night bed, crossfaded by timeOfDay)
+  ambient: 0.22,
+  'city-day': 0.2,
+  'city-night': 0.2,
 }
-// Alias map: name -> { base, rate } so `play('shoot')` reuses the gunshot
-// buffer instead of 404ing. Missing FILES never break: preload + play both
-// fail soft and the game stays silent for that cue.
+
 const ALIAS = {
   shoot: { base: 'gunshot', rate: 1 },
   melee: { base: 'gunshot', rate: 0.45 },
@@ -55,18 +36,18 @@ const ALIAS = {
   'city-day': { base: 'ambient', rate: 1 },
   'city-night': { base: 'city-hum', rate: 0.85 },
 }
+
 const resolveHowl = (name) => {
   if (sfx[name]) return { h: sfx[name], rate: 1 }
   const a = ALIAS[name]
   if (a && sfx[a.base]) return { h: sfx[a.base], rate: a.rate }
   return null
 }
+
 let loaded2D = false
 export const load2D = () => {
   if (loaded2D) return
   loaded2D = true
-  // Only fetch files that EXIST in public/sounds (plus the optional screech
-  // layer — a 404 there falls back to the synthesized noise, see below).
   const FILES = new Set([
     'gunshot', 'reload', 'hit', 'pickup', 'door', 'horn',
     'footstep', 'crash', 'ambient', 'city-hum', 'screech',
@@ -80,12 +61,6 @@ export const load2D = () => {
   }
 }
 
-/**
- * A 2D one-shot by name. Two forms:
- *   play(name, rate=1, volScale=1)          — plain 2D one-shot
- *   play(name, {x, z, volume})              — positional: fades with distance
- *     from the camera XZ (setListenerXZ) and culled past CULL_M.
- */
 export const play2D = (name, rate = 1, volScale = 1) => {
   const r = resolveHowl(name)
   if (!r) return
@@ -106,28 +81,35 @@ export const play2D = (name, rate = 1, volScale = 1) => {
   }
   const id = r.h.play()
   r.h.rate(pitch * r.rate, id)
-  r.h.volume(r.h.volume() * vScale, id) // Howler's per-play volume is absolute; scale from the base
+  r.h.volume(r.h.volume() * vScale, id)
 }
 
-// Cull radius (m) for positional one-shots — mirrors the building chunking.
 const CULL_M = 260
-// Camera XZ scratch, written by AudioSystem's useFrame (listener position).
-// Lets positional 2D one-shots cull by distance with zero allocation.
 const camScratch = { x: 0, z: 0 }
 export const setListenerXZ = (x, z) => {
   camScratch.x = x
   camScratch.z = z
 }
 
-/** Surface-aware footstep: asphalt cracks, grass thuds (rate + volume). */
-export const stepSurface = (onAsphalt) =>
-  play2D(onAsphalt ? 'footstep-asphalt' : 'footstep-grass', 0.9 + Math.random() * 0.25, onAsphalt ? 1 : 0.8)
+/** Surface-aware footstep: asphalt cracks, grass thuds. */
+export const stepSurface = (onAsphalt, isRunning = false) => {
+  const rate = (onAsphalt ? 1.05 : 0.8) + (Math.random() * 0.2 - 0.1) + (isRunning ? 0.15 : 0)
+  const vol = (onAsphalt ? 0.9 : 0.7) * (isRunning ? 1.2 : 0.85)
+  play2D(onAsphalt ? 'footstep-asphalt' : 'footstep-grass', rate, vol)
+}
+
+/** Jump takeoff sound */
+export const jumpSound = () => {
+  play2D('footstep', 1.25, 0.9)
+}
+
+/** Jump landing thud sound */
+export const landSound = (impactVel = 0) => {
+  const vol = Math.min(1.4, 0.7 + Math.abs(impactVel) * 0.1)
+  play2D('footstep', 0.65, vol)
+}
 
 /* ---------------- 3D bus ---------------- */
-// The AudioListener (and its AudioContext) are created lazily on the first
-// user gesture via getListener().  Creating it at module scope would make
-// Chrome's autoplay policy log "The AudioContext was not allowed to start"
-// and suspend the context before resume() ever runs.
 let listener = null
 export const getListener = () => {
   if (!listener) listener = new THREE.AudioListener()
@@ -137,10 +119,10 @@ export const getListener = () => {
 const POOL = {
   ready: false,
   buffers: {},
-  engines: [], // {obj, sound, active, speed} — fixed max, reused every frame
-  hums: [],    // static city-hum emitters
+  engines: [],
+  hums: [],
 }
-const ENGINE_MAX = 6 // 1 driven + 5 AI traffic
+const ENGINE_MAX = 6
 
 const fetchBuffer = async (ctx, name) => {
   const res = await fetch(`/sounds/${name}.wav`)
@@ -148,11 +130,6 @@ const fetchBuffer = async (ctx, name) => {
   return ctx.decodeAudioData(ab)
 }
 
-/**
- * Builds the positional nodes under `scene` (they are plain Object3Ds whose
- * world position the renderer feeds to the panner). Idempotent + fail-soft:
- * if fetch/decode throws, POOL.ready stays false and everything 2D still works.
- */
 export const initPositional = async (scene) => {
   if (POOL.ready || POOL.failed) return
   try {
@@ -171,7 +148,6 @@ export const initPositional = async (scene) => {
       obj.add(sound)
       POOL.engines.push({ obj, sound, active: false, speed: 0 })
     }
-    // Four static ambience spots (spawn-relative quadrants) over one 2D bed.
     for (const [dx, dz] of [[150, 150], [-150, 150], [150, -150], [-150, -150]]) {
       const obj = new THREE.Object3D()
       obj.position.set(dx, 2, dz)
@@ -193,8 +169,7 @@ export const initPositional = async (scene) => {
 }
 
 const ENGINE_BASE = 0.55
-
-const GEAR_SPEEDS = [0, 15, 35, 60, 85, 120] // km/h thresholds for gears 1..5
+const GEAR_SPEEDS = [0, 15, 35, 60, 85, 120]
 
 const CAR_AUDIO_PROFILES = {
   sports: { pitchMult: 1.22, idleRpm: 1000, maxRpm: 7200 },
@@ -240,7 +215,6 @@ const calculateEngineRpm = (speedKmh, carClass = 'sedan') => {
   return { rpm, gear, progress, profile }
 }
 
-/** Per-frame engine write: position + pitch + on/off with gear RPM simulation. */
 export const engineUpdate = (i, x, y, z, speed01, active, carClass = 'sedan', load = 0) => {
   const e = POOL.engines[i]
   if (!e || !POOL.ready) return
@@ -278,16 +252,12 @@ export const engineUpdate = (i, x, y, z, speed01, active, carClass = 'sedan', lo
   }
 }
 
-// --- Tire screech: synth fallback (no asset in public/sounds) -------------
-// A short band-passed noise burst through the WebAudio context Howler owns.
-// Fail-soft: if the context is missing, this is a silent no-op.
 let screechBuf = null
 const screechState = { lastAt: 0 }
 export const screech = (intensity = 1) => {
   const now = typeof performance !== 'undefined' ? performance.now() : 0
-  if (now - screechState.lastAt < 180) return // gate: bursts, not a drone
+  if (now - screechState.lastAt < 180) return
   screechState.lastAt = now
-  // Prefer the real asset when present; otherwise synthesize.
   const r = sfx.screech && sfx.screech.state && (() => { try { return sfx.screech.state() === 'loaded' } catch { return false } })()
   if (r) {
     const id = sfx.screech.play()
@@ -321,33 +291,21 @@ export const screech = (intensity = 1) => {
   } catch { /* silent */ }
 }
 
-// Occasional distant traffic horn from the AI stream (called ~4 Hz from
-// AudioSystem with the live AI count; rate-limited + culled in play2D).
-// Zero allocation: module-level timer only.
 let lastHornAt = 0
 export const trafficHorn = (nearCount = 0) => {
   const now = typeof performance !== 'undefined' ? performance.now() : 0
   if (now - lastHornAt < 9000) return
   lastHornAt = now
-  // busier streets honk more often — 8% base, +6% per AI car in earshot
   if (Math.random() > 0.08 + Math.min(0.4, nearCount * 0.06)) return
   play2D('horn', 0.85 + Math.random() * 0.3, 0.25)
 }
 
-// --- Day/night city beds: crossfade by timeOfDay --------------------------
 const beds = { dayId: null, nightId: null, dayVol: 0, nightVol: 0 }
-/**
- * Crossfade the two ambient beds by hour (0-24). Day bed (ambient.wav) peaks
- * at noon, night bed (city-hum.wav) peaks at midnight — two REAL files, so
- * the "city sounds remain the same" flat-bed bug (both voices on one buffer)
- * cannot regress. Call throttled (~4 Hz is plenty).
- */
 export const bedsUpdate = (hour) => {
   const day = sfx.ambient
   const night = sfx['city-hum'] || sfx.ambient
   if (!day || !loaded2D) return
   const h = ((hour % 24) + 24) % 24
-  // Night weight: full at 0h, zero 8h-17h, ramps at dawn/dusk.
   let nightW = 0
   if (h < 5 || h >= 20) nightW = 1
   else if (h < 8) nightW = 1 - (h - 5) / 3
@@ -380,12 +338,7 @@ export const bedsUpdate = (hour) => {
 
 /* ---------------- API ---------------- */
 export const audio = {
-  /** Resume after a user gesture (autoplay policy). Creates the AudioListener
-   *  (THREE AudioContext) and Howl objects (Howler AudioContext) on first call
-   *  so neither context is instantiated before the gesture. Safe to call
-   *  repeatedly. */
   resume: () => {
-    // First user gesture: create both contexts + load Howl objects.
     load2D()
     const l = getListener()
     try { Howler.ctx && Howler.ctx.state !== 'running' && Howler.ctx.resume() } catch (e) { /* ignore */ }
@@ -396,34 +349,28 @@ export const audio = {
     try { Howler.volume(master.v) } catch (e) { /* ignore */ }
     for (const h of POOL.hums) h.sound.setVolume(0.3 * master.v)
   },
-  /** One 2D ambience bed (city hum), started on first PLAY. */
   startAmbient: () => {
     const h = sfx.ambient
     if (h && !h.playing()) {
       try {
         const id = h.play()
         h.loop(true, id)
-        beds.dayId = id // bedsUpdate() crossfades from this voice
+        beds.dayId = id
       } catch { /* ignore */ }
     }
   },
-  /** Positional form: store.audio.play(name, {x, z, volume}) — culled past 260 m. */
   play: play2D,
-  /** Footstep: slight rate jitter so repeated hits don't sound robotic. */
   step: () => play2D('footstep', 0.85 + Math.random() * 0.3),
-  /** Surface-aware footstep: asphalt cracks, grass thuds. */
   stepSurface,
-  /** Tire screech burst (drift > 15 deg + speed). */
+  jump: jumpSound,
+  land: landSound,
   screech,
-  /** Occasional distant traffic horn (AI stream ambience). */
   horn: trafficHorn,
-  /** Day/night bed crossfade (call throttled with the game clock). */
   bedsUpdate,
   setListenerXZ,
   crash: (dmg01) => play2D('crash', 0.9 + Math.random() * 0.2, 0.5 + Math.min(1, dmg01) * 0.6),
   engineUpdate,
   initPositional,
-  /** QA seam (smoke.mjs): one stable object, mutated in place. */
   qa: {
     ready: () => POOL.ready,
     engines: POOL.engines,

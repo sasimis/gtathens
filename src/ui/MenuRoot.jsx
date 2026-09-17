@@ -8,6 +8,7 @@ import PauseMenu from './PauseMenu'
 import Hud from './Hud'
 import StreetHUD from './StreetHUD'
 import Minimap from './Minimap'
+import { BTN, getGamepad, padEdge } from '../lib/gamepad'
 
 const MenuRoot = () => {
   const phase = useGameStore((s) => s.phase)
@@ -26,6 +27,26 @@ const MenuRoot = () => {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [phase, pauseGame, resumeGame, closeSettings])
+
+  useEffect(() => {
+    let animId = null
+    const checkGamepadMenu = () => {
+      const pad = getGamepad()
+      if (pad) {
+        if (padEdge(pad, BTN.START)) {
+          if (phase === Phase.PLAYING) pauseGame()
+          else if (phase === Phase.PAUSED) resumeGame()
+          else if (phase === Phase.SETTINGS) closeSettings()
+        } else if (padEdge(pad, BTN.B)) {
+          if (phase === Phase.PAUSED) resumeGame()
+          else if (phase === Phase.SETTINGS) closeSettings()
+        }
+      }
+      animId = requestAnimationFrame(checkGamepadMenu)
+    }
+    animId = requestAnimationFrame(checkGamepadMenu)
+    return () => cancelAnimationFrame(animId)
   }, [phase, pauseGame, resumeGame, closeSettings])
 
   return (
