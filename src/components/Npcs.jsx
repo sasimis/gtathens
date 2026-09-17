@@ -414,111 +414,88 @@ const CAR_COLORS = ['#c0392b', '#2980b9', '#7f8c8d', '#f39c12', '#27ae60']
 const AiCar = ({ route, seed, index = 0 }) => {
   const bodyRef = useRef(null)
   const gRef = useRef(null)
-  const st = useRef({ seg: 0, t: 0, x: route[0][0], z: route[0][1], yaw: 0, speed: 0 })
+  const st = useRef({ seg: 0, x: route[0][0], z: route[0][1], yaw: 0, speed: 0 })
   const s = st.current
-  // Register this car's live slot IMMEDIATELY (before the first frame) so the
-  // O(n²) separation loop in siblings never reads an empty/stale slot and
-  // teleports a car across the map on its first overlap test.
+
   if (!crash.aiLive[index] || !Number.isFinite(crash.aiLive[index].x)) {
     crash.setAiLive(index, s.x, s.z)
   }
-  // Deterministic real car model per traffic car (same FBX pack as parked
-  // cars — no more colored placeholder boxes). Road-safe sizes only: the FBX
-  // pack's bus / truck-with-trailer are ~13.7 m long and would block lanes.
+
   const AI_CAR_IDS = ['sedan', 'taxi', 'hatchback', 'sports', 'suv', 'pickup', 'van', 'police-sedan']
   const carId = AI_CAR_IDS[Math.abs(seed) % AI_CAR_IDS.length] || 'sedan'
   const half = HALF[carId] || HALF.sedan
 
   useFrame((state, dtRaw) => {
     const rb = bodyRef.current
-    if (!rb) return
+    if (!rb || typeof rb.translation !== 'function') return
     const dt = Math.min(dtRaw, 0.05)
     const gs = useGameStore.getState()
     if (gs.phase !== Phase.PLAYING) {
       try { rb.setLinvel({ x: 0, y: 0, z: 0 }, true) } catch (e) { /* noop */ }
       return
     }
-    const a = route[s.seg]
+
+    const tPos = rb.translation()
+    s.x = tPos.x
+    s.z = tPos.z
+
     const b = route[s.seg + 1] || route[0]
-    const dx = b[0] - a[0]
-    const dz = b[1] - a[1]
-    const len = Math.hypot(dx, dz) || 1
+    let dx = b[0] - s.x
+    let dz = b[1] - s.z
+    let distToWp = Math.hypot(dx, dz)
+    if (distToWp < 3.5) {
+      s.seg = (s.seg + 1) % Math.max(1, route.length - 1)
+    }
+
+    if (distToWp < 0.001) { dx = 0; dz = 1; distToWp = 1 }
+    const dirX = dx / distToWp
+    const dirZ = dz / distToWp
+    s.yaw = Math.atan2(dirX, dirZ)
+
     let want = AI_CRUISE
     try {
       const p = window.__gtathensPlayer
       if (p) {
         const pd = Math.hypot(p.x - s.x, p.z - s.z)
-        if (pd < 7) want = 0
-        else if (pd < 14) want = AI_CRUISE * 0.35
+        if (pd < 6) want = 0
+        else if (pd < 12) want = AI_CRUISE * 0.3
       }
-    } catch (e) { /* noop */ }
-    s.speed += (want - s.speed) * Math.min(1, dt * 2.2)
-    s.t += (s.speed * dt) / len
-    if (s.t >= 1) {
-      s.t = 0
-      s.seg = (s.seg + 1) % Math.max(1, route.length - 1)
-    }
-    const nx = a[0] + (b[0] - a[0]) * s.t
-    const nz = a[1] + (b[1] - a[1]) * s.t
-    s.x = nx
-    s.z = nz
-    s.yaw = Math.atan2(dx, dz)
-    // Publish for the audio system's positional engine nodes (stable object,
-    // mutated in place — no allocation). Speed drives the engine pitch.
-    setAiLive(index, nx, nz)
-    try { crash.setAiLive(index, nx, nz) } catch { /* seam not mounted */ }
+      const others = crash.aiLive
+      for (let k = 0; k < others.length; k += 1) {
+        if (k === index) continue
+        const o = others[k]
+        if (!o || !Number.isFinite(o.x) || !Number.isFinite(o.z)) continue
+        const odx = o.x - s.x
+        const odz = o.z - s.z
+        const od = Math.hypot(odx, odz)
+        const dot = odx * dirX + odz * dirZ
+        if (od < 5.5 && dot > 0) {
+          want = 0
+          break
+        }
+      }
+    } catch { /* ignore */ }
+
+    s.speed += (want - s.speed) * Math.min(1, dt * 3.0)
+    const targetVx = dirX * s.speed
+    const targetVz = dirZ * s.speed
+
+    const v = rb.linvel ? rb.linvel() : { x: 0, y: 0, z: 0 }
+    rb.setLinvel({ x: targetVx, y: v.y, z: targetVz }, true)
+
+    const c = Math.cos(s.yaw / 2)
+    const sinY = Math.sin(s.yaw / 2)
+    rb.setRotation({ x: 0, y: sinY, z: 0, w: c }, true)
+
+    setAiLive(index, s.x, s.z)
+    try { crash.setAiLive(index, s.x, s.z) } catch { /* seam not mounted */ }
     try {
       const live = crash.aiLive[index]
       if (live) live.speed = s.speed
     } catch { /* ignore */ }
-    // --- AI-vs-AI separation (the "npc cars do not collide" fix).
-    // Kinematic bodies never receive solver impulses, so two AI cars on
-    // crossing routes would overlap forever. Cheap O(n^2) circle push over
-    // the 5 live positions (zero alloc, plain locals) BEFORE the kinematic
-    // teleport: pairs closer than r1+r2 split apart along the contact normal
-    // and both slow for the near-miss. Only finite slots take part — a car
-    // still on its spawn frame must not shove (or be shoved by) anyone.
-    // NOTE: this deliberately does NOT touch parked cars — those are real
-    // Rapier bodies and the solver already separates them (see AI_CAR_GROUPS
-    // note above); pushing their livePos here would desync enter detection.
-    try {
-      const others = crash.aiLive
-      const me = others[index]
-      const myR = Math.max(half[0], half[2]) * 0.55
-      if (me && Number.isFinite(me.x) && Number.isFinite(me.z)) {
-        for (let k = 0; k < others.length; k += 1) {
-          if (k === index) continue
-          const o = others[k]
-          if (!o || !Number.isFinite(o.x) || !Number.isFinite(o.z)) continue
-          let ddx = s.x - o.x
-          let ddz = s.z - o.z
-          let dist = Math.hypot(ddx, ddz)
-          const minD = myR + 2.2
-          if (dist < minD) {
-            if (dist < 1e-4) { ddx = Math.sin(index * 2.4); ddz = Math.cos(index * 2.4); dist = 1e-4 }
-            const push = (minD - dist) * 0.5
-            const px = (ddx / dist) * push
-            const pz = (ddz / dist) * push
-            s.x += px
-            s.z += pz
-            o.x -= px
-            o.z -= pz
-            s.speed = Math.min(s.speed, 2.5)
-            // thump + a dent when they actually touch (rate-limited in play2D)
-            try { audio.crash(0.25) } catch { /* ambience */ }
-            try { addAiDamage(index, 0.02) } catch { /* ignore */ }
-          }
-        }
-      }
-    } catch { /* separation is best-effort */ }
-    try {
-      const t = rb.translation()
-      const y = Number.isFinite(t.y) ? t.y : 0.5
-      setKb(rb, s.x, y, s.z)
-      try { rb.setRotation({ x: 0, y: Math.sin(s.yaw / 2), z: 0, w: Math.cos(s.yaw / 2) }, true) } catch (e) { /* noop */ }
-    } catch (e) { /* noop */ }
+
     if (gRef.current) {
-      gRef.current.position.set(s.x, 0, s.z)
+      gRef.current.position.set(s.x, tPos.y - half[1], s.z)
       gRef.current.rotation.set(0, s.yaw, 0)
     }
   })
@@ -527,21 +504,19 @@ const AiCar = ({ route, seed, index = 0 }) => {
     <group ref={gRef} position={[route[0][0], 0, route[0][1]]}>
       <RigidBody
         ref={bodyRef}
-        type="kinematicPosition"
+        type="dynamic"
         colliders={false}
-        position={[0, half[1], 0]}
+        position={[route[0][0], half[1], route[0][1]]}
         collisionGroups={AI_CAR_GROUPS}
-        // Contact + force events so the driven car FEELS the ram (CarDriver
-        // crash path) and parked-car handlers see the AI side of the pair.
-        // Kinematic bodies never take solver impulses themselves — the
-        // separation loop above handles AI-vs-AI; the solver handles AI vs
-        // dynamic (driven/loose) cars.
+        mass={1800}
+        canSleep={false}
+        ccdEnabled
+        linearDamping={0.5}
+        angularDamping={2.0}
         onCollisionEnter={(p) => { try { audio.crash(0.3) } catch { /* ignore */ } }}
       >
-        <CuboidCollider args={[half[0], half[1], half[2]]} />
+        <CuboidCollider args={[half[0], half[1], half[2]]} friction={0.9} restitution={0.05} />
       </RigidBody>
-      {/* Real car mesh from the same FBX pack as parked cars (CarModel points
-          +Z out of the file, same as the traffic yaw basis — no extra yaw). */}
       <group position={[0, 0, 0]}>
         <CarModel id={carId} />
       </group>
