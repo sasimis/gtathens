@@ -93,16 +93,16 @@ const Minimap = () => {
       ctx.arc(cX, cY, MAP_RADIUS * 0.75, 0, Math.PI * 2)
       ctx.stroke()
 
-      const cosY = Math.cos(-yaw)
-      const sinY = Math.sin(-yaw)
+      const cosY = Math.cos(yaw)
+      const sinY = Math.sin(yaw)
 
-      // Transform world coordinate (x, z) to canvas (x, y)
+      // Transform world coordinate (x, z) to canvas (canvasX, canvasY)
       const worldToCanvas = (x, z) => {
         const dx = x - px
         const dz = z - pz
-        const rx = dx * cosY - dz * sinY
-        const ry = dx * sinY + dz * cosY
-        return [cX + rx / RADAR_SCALE, cY + ry / RADAR_SCALE]
+        const rx = dx * cosY + dz * sinY
+        const ry = -dx * sinY + dz * cosY
+        return [cX + rx / RADAR_SCALE, cY - ry / RADAR_SCALE]
       }
 
       // Draw road segments
@@ -197,24 +197,26 @@ const Minimap = () => {
       ctx.stroke()
 
       // Compass Cardinal direction markers (N, S, E, W)
-      const compassAngles = [
-        { label: 'N', angle: 0, color: '#f5b800' },
-        { label: 'E', angle: Math.PI / 2, color: '#e8edf5' },
-        { label: 'S', angle: Math.PI, color: '#e8edf5' },
-        { label: 'W', angle: -Math.PI / 2, color: '#e8edf5' },
+      const compassPoints = [
+        { label: 'N', dx: 0, dz: -1, color: '#f5b800' },
+        { label: 'E', dx: 1, dz: 0, color: '#e8edf5' },
+        { label: 'S', dx: 0, dz: 1, color: '#e8edf5' },
+        { label: 'W', dx: -1, dz: 0, color: '#e8edf5' },
       ]
 
       ctx.font = 'bold 11px system-ui, sans-serif'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
 
-      for (const marker of compassAngles) {
-        // Rotate compass angle relative to camera view yaw
-        const a = marker.angle - yaw
-        const mx = cX + Math.sin(a) * (MAP_RADIUS - 10)
-        const my = cY - Math.cos(a) * (MAP_RADIUS - 10)
-        ctx.fillStyle = marker.color
-        ctx.fillText(marker.label, mx, my)
+      const R = MAP_RADIUS - 10
+      for (const pt of compassPoints) {
+        const rx = pt.dx * cosY + pt.dz * sinY
+        const ry = -pt.dx * sinY + pt.dz * cosY
+        const len = Math.hypot(rx, ry) || 1
+        const mx = cX + (rx / len) * R
+        const my = cY - (ry / len) * R
+        ctx.fillStyle = pt.color
+        ctx.fillText(pt.label, mx, my)
       }
 
       // Player Blip (center arrow pointing UP)

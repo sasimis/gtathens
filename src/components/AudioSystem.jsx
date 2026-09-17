@@ -86,6 +86,7 @@ const AudioSystem = () => {
     }
     // Driven car: live rapier body.
     let driven = null
+    let drivenCarId = 'sedan'
     if (on && gs.driving !== null && gs.driving !== undefined) {
       try {
         const rb = getCarBody(gs.driving)
@@ -93,21 +94,39 @@ const AudioSystem = () => {
           const t = rb.translation()
           const v = rb.linvel()
           driven = { x: t.x, y: t.y, z: t.z, speed: Math.hypot(v.x, v.z) }
+          const cHook = window.__gtathensCars
+          if (cHook && typeof cHook.spot === 'function') {
+            const sp = cHook.spot(gs.driving)
+            if (sp && sp.id) drivenCarId = sp.id
+          }
         }
       } catch (e) { /* body gone between frames */ }
     }
-    audio.engineUpdate(0, driven ? driven.x : 0, driven ? driven.y : 0, driven ? driven.z : 0,
-      driven ? Math.min(1, driven.speed / 17) : 0, !!driven)
-    // AI traffic: AI_CAR_LIVE[i] = {x, z, speed, yaw} mutated in place by AiCar.
-    // Kinematic bodies still push dynamic ones through CONTACTS (solver), but
-    // car-vs-car IMPACT events + crash damage only fire between two colliders
-    // that both accept GROUP_CAR — the filter below is two-sided, so AI cars
-    // now thump parked cars (and each other) instead of ghosting through.
+    audio.engineUpdate(
+      0,
+      driven ? driven.x : 0,
+      driven ? driven.y : 0,
+      driven ? driven.z : 0,
+      driven ? Math.min(1, driven.speed / 20) : 0,
+      !!driven,
+      drivenCarId,
+      0.1
+    )
+
+    // AI traffic
     for (let i = 0; i < 5; i += 1) {
       const live = AI_CAR_LIVE[i]
       const active = on && !!live
-      audio.engineUpdate(i + 1, live ? live.x : 0, 0.5, live ? live.z : 0,
-        active ? Math.min(1, (live.speed || 0) / 8) : 0, active)
+      audio.engineUpdate(
+        i + 1,
+        live ? live.x : 0,
+        0.5,
+        live ? live.z : 0,
+        active ? Math.min(1, (live.speed || 0) / 10) : 0,
+        active,
+        'sedan',
+        0
+      )
     }
   })
 

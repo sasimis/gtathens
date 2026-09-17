@@ -87,32 +87,52 @@ const SickInventory = () => {
   // STALE hover from the keydown render and equip the wrong slot).
   const hoverRef = useRef(hover)
   hoverRef.current = hover
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__gtathensToggleInventory = () => {
+        const st = useGameStore.getState()
+        st.toggleInventory()
+      }
+    }
+    return () => {
+      if (typeof window !== 'undefined') delete window.__gtathensToggleInventory
+    }
+  }, [])
+
   useEffect(() => {
     const down = (e) => {
-      if (e.repeat) return
-      const st = useGameStore.getState()
-      if (st.phase !== Phase.PLAYING) return
       if (e.code === 'Tab') {
         e.preventDefault()
+        e.stopPropagation()
+        if (e.repeat) return
+        const st = useGameStore.getState()
+        if (st.phase !== Phase.PLAYING) return
         tabDown.current = true
         if (st.inventoryOpen) st.closeInventory()
         setHover(st.equipped)
         setWheel(true)
         try { audio.play('wheel') } catch {}
       } else if (e.code === 'KeyI') {
+        if (e.repeat) return
+        const st = useGameStore.getState()
+        if (st.phase !== Phase.PLAYING) return
         if (tabDown.current) return // wheel owns Tab; I must not fight it
         st.toggleInventory()
         try { audio.play('wheel') } catch {}
       }
     }
     const up = (e) => {
-      if (e.code !== 'Tab' || !tabDown.current) return
-      e.preventDefault()
-      tabDown.current = false
-      setWheel(false)
-      const id = hoverRef.current
-      if (id) useGameStore.getState().equipWeapon(id)
-      setHover(null)
+      if (e.code === 'Tab') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!tabDown.current) return
+        tabDown.current = false
+        setWheel(false)
+        const id = hoverRef.current
+        if (id) useGameStore.getState().equipWeapon(id)
+        setHover(null)
+      }
     }
     const onBlur = () => {
       // Alt-Tab away with the wheel held: drop the stuck-open overlay so it
