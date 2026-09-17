@@ -3,6 +3,8 @@ import { useFBX, useTexture, useKeyboardControls } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js'
+import useGameStore from '../store/useGameStore'
+import { WEAPONS } from '../lib/weapons'
 
 const CHAR_SCALE = 1.8 / 376.5
 
@@ -39,9 +41,6 @@ function pickLongestTake(fbx) {
 }
 
 // Strip root-motion (hip position) tracks so the skeleton animates in place.
-// The Kenney run/walk clips translate the hip bone forward - combined with
-// physics body movement, the character skates and wobbles. Removing the hip
-// .position track lets the physics own translation while legs/arms still move.
 function stripRootMotion(clip) {
   if (!clip) return null
   const filtered = clip.tracks.filter((track) => {
@@ -60,6 +59,11 @@ function stripRootMotion(clip) {
   return clone
 }
 
+// Scratch quaternions for procedural arm/spine IK posing
+const qTarget = new THREE.Quaternion()
+const qCurrent = new THREE.Quaternion()
+const euler = new THREE.Euler()
+
 const Protagonist = forwardRef(({ action = 'idle', skin = null, animSpeed = 1 }, outerGroup) => {
   const innerRef = useRef(null)
   const model = useFBX('/models/character/protagonist.fbx')
@@ -67,6 +71,9 @@ const Protagonist = forwardRef(({ action = 'idle', skin = null, animSpeed = 1 },
   const idleFbx = useFBX('/models/character/idle.fbx')
   const runFbx = useFBX('/models/character/run.fbx')
   const jumpFbx = useFBX('/models/character/jump.fbx')
+
+  const equipped = useGameStore((s) => s.equipped)
+  const punchAnimT = useRef(0)
 
   const clips = useMemo(() => {
     const map = {
@@ -83,13 +90,9 @@ const Protagonist = forwardRef(({ action = 'idle', skin = null, animSpeed = 1 },
   const mixerRef = useRef(null)
   const actionsRef = useRef({})
   const prevAction = useRef(null)
+  const boneRefs = useRef({})
+
   useEffect(() => {
-    // Capture the group in the closure: React nulls out refs BEFORE passive
-    // effect cleanup runs for a deleted tree, so reading innerRef.current in
-    // the cleanup passed `null` to uncacheRoot() and threw
-    // "Cannot read properties of null (reading 'uuid')". That error killed the
-    // whole <Canvas> (black screen) every time the on-foot Player unmounted —
-    // i.e. exactly when you climb into a car.
     const root = innerRef.current
     if (!root || !clips.idle) return
     const mixer = new THREE.AnimationMixer(root)
@@ -98,8 +101,6 @@ const Protagonist = forwardRef(({ action = 'idle', skin = null, animSpeed = 1 },
     for (const [name, clip] of Object.entries(clips)) {
       if (clip) acts[name] = mixer.clipAction(clip)
     }
-    // Start in idle at full weight so the very first frame is already posed
-    // (no bind-pose/T-pose flash while the FBX streams in).
     if (acts.idle) {
       acts.idle.reset()
       acts.idle.setLoop(THREE.LoopRepeat, Infinity)
@@ -118,11 +119,6 @@ const Protagonist = forwardRef(({ action = 'idle', skin = null, animSpeed = 1 },
       } catch (e) {
         /* ignore */
       }
-      // MUST use the captured `root`: React nulls out refs before passive
-      // effect cleanup runs for a deleted tree, so reading innerRef.current
-      // here handed `null` to uncacheRoot() -> "Cannot read properties of null
-      // (reading 'uuid')" -> the throw unmounted the whole <Canvas> (black
-      // screen), which is exactly what happened when climbing into a car.
       mixer.uncacheRoot(root)
       mixerRef.current = null
     }
@@ -132,19 +128,12 @@ const Protagonist = forwardRef(({ action = 'idle', skin = null, animSpeed = 1 },
     const acts = actionsRef.current
     const next = acts[action] ?? acts.idle
     if (!next) return
-    // Same clip, only the playback speed changed (walk -> run): NEVER reset or
-    // re-fade. reset() drops every weight to 0 for one frame, which reads as a
-    // T-pose flash. Just retime the already-playing action.
     if (prevAction.current === action) {
       try {
         next.timeScale = action === 'jump' ? 1.1 : animSpeed
       } catch (e) { /* ignore */ }
       return
     }
-    // Real clip switch: overlap the blends so at least one pose stays at
-    // weight ~1 the whole time (no bind-pose gap). Fade the winner in FIRST,
-    // then fade the losers out — a single frame with no weight-1 pose reads
-    // as arms-out (T-pose).
     try {
       next.reset()
     } catch (e) {
@@ -170,29 +159,29 @@ const Protagonist = forwardRef(({ action = 'idle', skin = null, animSpeed = 1 },
     prevAction.current = action
   }, [action, animSpeed])
 
-  useFrame((_, delta) => {
-    // Clamp the step so a hitch never fast-forwards the skeleton (pop), and
-    // keep ticking a touch after tab-switch so the pose never freezes mid-air.
-    if (mixerRef.current) mixerRef.current.update(Math.min(Math.max(delta, 0), 0.05))
-  })
-
   const scene = useMemo(() => {
     if (!model) return null
     const clone = SkeletonUtils.clone(model)
     clone.scale.setScalar(CHAR_SCALE)
+    const bones = {}
     clone.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true
         o.frustumCulled = false
-        // Clone materials per instance: the FBX cache shares materials across
-        // every Protagonist. Mutating m.map for the player's skin would leak
-        // onto every NPC (and vice versa) — the "NPC changes skin with me" bug.
         try {
           if (Array.isArray(o.material)) o.material = o.material.map((m) => (m && m.clone ? m.clone() : m))
           else if (o.material && o.material.clone) o.material = o.material.clone()
         } catch (e) { /* keep shared on failure */ }
+      } else if (o.isBone) {
+        const lowerName = o.name.toLowerCase()
+        if (lowerName.includes('rightshoulder') || lowerName.includes('rightarm')) bones.rightArm = o
+        if (lowerName.includes('rightforearm')) bones.rightForearm = o
+        if (lowerName.includes('leftshoulder') || lowerName.includes('leftarm')) bones.leftArm = o
+        if (lowerName.includes('leftforearm')) bones.leftForearm = o
+        if (lowerName.includes('spine') || lowerName.includes('chest')) bones.spine = o
       }
     })
+    boneRefs.current = bones
     return clone
   }, [model])
 
@@ -210,6 +199,47 @@ const Protagonist = forwardRef(({ action = 'idle', skin = null, animSpeed = 1 },
       }
     })
   }, [scene, skinTex])
+
+  useFrame((_, delta) => {
+    const dt = Math.min(Math.max(delta, 0), 0.05)
+    if (mixerRef.current) mixerRef.current.update(dt)
+
+    // Procedural weapon arm posing: override upper arm bone rotations after mixer update
+    const bones = boneRefs.current
+    if (!bones || !equipped) return
+
+    const wdef = WEAPONS[equipped]
+    if (equipped === 'fists') {
+      // Check for punch attack triggering from window hook
+      if (window.__gtathensPunchT && window.__gtathensPunchT > 0) {
+        punchAnimT.current = 0.35
+        window.__gtathensPunchT = 0
+      }
+      if (punchAnimT.current > 0) {
+        punchAnimT.current = Math.max(0, punchAnimT.current - dt)
+        const progress = 1 - (punchAnimT.current / 0.35) // 0 to 1
+        const punchSwing = Math.sin(progress * Math.PI) // 0 -> 1 -> 0
+        if (bones.rightArm) {
+          euler.set(0.6 * punchSwing, -0.4 * punchSwing, -0.8 * punchSwing)
+          qTarget.setFromEuler(euler)
+          bones.rightArm.quaternion.slerp(qTarget, 0.4)
+        }
+      }
+    } else if (wdef) {
+      // Aim / weapon holding pose
+      const isTwoHanded = wdef.mag > 20 || wdef.damage > 30 // Rifle / Shotgun
+      if (bones.rightArm) {
+        euler.set(-0.6, -0.25, 0.1) // Lift right arm forward/up
+        qTarget.setFromEuler(euler)
+        bones.rightArm.quaternion.slerp(qTarget, 0.25)
+      }
+      if (bones.leftArm && isTwoHanded) {
+        euler.set(-0.5, 0.35, -0.1) // Bring left arm across to support rifle barrel
+        qTarget.setFromEuler(euler)
+        bones.leftArm.quaternion.slerp(qTarget, 0.25)
+      }
+    }
+  })
 
   if (!scene) return null
 
@@ -239,8 +269,6 @@ export function useCharacterAction(bodyRef) {
     vel.set(v.x, v.y, v.z)
 
     const yVel = vel.y
-    const xzSpeed = Math.hypot(vel.x, vel.z)
-
     const isMoving = keys.forward || keys.backward || keys.left || keys.right
     const isSprinting = keys.run && isMoving
     const isGrounded = Math.abs(yVel) < 0.8
