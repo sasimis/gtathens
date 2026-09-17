@@ -634,6 +634,212 @@ kbd {
   text-shadow: 2px 2px 0 #000;
   min-width: 96px;
   text-align: center;
+}
+
+/* ===== Invisible-but-blocking DOM overlays ==============================
+   A fixed full-screen layer with pointer-events:auto (or a framer-motion
+   wrapper that renders a plain div) sits above the canvas and renders as a
+   tall translucent "sidebar" bar down the middle of the screen. The guilty
+   classes have no ui.css rule at all (weapon wheel, sick panel grid,
+   HUD input prompts container) so keep them ALL explicitly invisible +
+   non-interactive until their open state mounts real content. */
+.wheel-screen,
+.sick-screen,
+.sick-panel,
+.wheel-ring,
+.wheel-core,
+.wheel-slot,
+.sick-grid,
+.inv-cell,
+.input-prompts {
+  pointer-events: none;
+}
+
+.wheel-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.wheel-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 300px;
+  height: 300px;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(6, 10, 18, 0.55) 0%, rgba(6, 10, 18, 0.15) 70%, transparent 100%);
+}
+
+.wheel-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 10px 18px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text);
+  background: rgba(13, 20, 32, 0.85);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.wheel-slot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 88px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: rgba(13, 20, 32, 0.85);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.wheel-slot.on {
+  border-color: var(--accent);
+  background: rgba(245, 184, 0, 0.18);
+}
+
+.wheel-glyph {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.wheel-name {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.wheel-ammo {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.wheel-hint {
+  position: absolute;
+  bottom: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.sick-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 10, 18, 0.55);
+}
+
+.sick-screen .sick-panel,
+.sick-panel {
+  pointer-events: auto;
+  width: min(560px, 92vw);
+  padding: 22px 24px 18px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  text-align: center;
+}
+
+.sick-title {
+  font-family: 'Arial Black', 'Impact', sans-serif;
+  font-size: 20px;
+  letter-spacing: 4px;
+}
+
+.sick-cash {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #7dff9a;
+}
+
+.sick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 14px 0 10px;
+}
+
+.inv-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 8px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.inv-cell.on {
+  border-color: var(--accent);
+}
+
+.inv-cell.drop {
+  border-color: #4caf50;
+  background: rgba(76, 175, 80, 0.15);
+}
+
+.inv-glyph {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.inv-name {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.inv-ammo {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.sick-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.sick-hp-track {
+  width: 160px;
+}
+
+.sick-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
 
 /* ===== Inventory / economy HUD ===== */
 .hud-money {
@@ -862,8 +1068,6 @@ kbd {
 .inv-row.inv-head { color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
 .inv-row .inv-hp { width: 100%; }
 .inv-empty { padding: 12px 0; color: var(--text-dim); font-size: 13px; }
-
-}
 
 /* Street-name chip (bottom-right): nearest road class on foot + driving.
    Sits above the debug buttons, same monospace treatment as the reload bar. */

@@ -32,15 +32,16 @@ const TWO_D = {
   pickup: 0.4,
   'pickup-money': 0.4, // alias of pickup (brighter rate at play time)
   door: 0.5,
+  horn: 0.5, // city traffic horn one-shot (synthesized, see gen-sounds)
   wheel: 0.35,
   footstep: 0.35,
   'footstep-asphalt': 0.35, // alias of footstep (surface variation via rate)
   'footstep-grass': 0.32, // alias of footstep (softer rate at play time)
   screech: 0.4, // synth fallback when /sounds/screech.wav is missing
   crash: 0.6,
-  ambient: 0.22,
+  ambient: 0.22, // real file (day bed); night bed is city-hum.wav
   'city-day': 0.2, // alias of ambient (day bed, crossfaded by timeOfDay)
-  'city-night': 0.2, // alias of ambient (night bed, crossfaded by timeOfDay)
+  'city-night': 0.2, // alias of city-hum (night bed, crossfaded by timeOfDay)
 }
 // Alias map: name -> { base, rate } so `play('shoot')` reuses the gunshot
 // buffer instead of 404ing. Missing FILES never break: preload + play both
@@ -52,7 +53,7 @@ const ALIAS = {
   'footstep-asphalt': { base: 'footstep', rate: 1.05 },
   'footstep-grass': { base: 'footstep', rate: 0.75 },
   'city-day': { base: 'ambient', rate: 1 },
-  'city-night': { base: 'ambient', rate: 0.7 },
+  'city-night': { base: 'city-hum', rate: 0.85 },
 }
 const resolveHowl = (name) => {
   if (sfx[name]) return { h: sfx[name], rate: 1 }
@@ -67,8 +68,8 @@ export const load2D = () => {
   // Only fetch files that EXIST in public/sounds (plus the optional screech
   // layer — a 404 there falls back to the synthesized noise, see below).
   const FILES = new Set([
-    'gunshot', 'reload', 'hit', 'pickup', 'door', 'wheel',
-    'footstep', 'crash', 'ambient', 'screech',
+    'gunshot', 'reload', 'hit', 'pickup', 'door', 'horn',
+    'footstep', 'crash', 'ambient', 'city-hum', 'screech',
   ])
   const seen = new Set()
   for (const name of Object.keys(TWO_D)) {
@@ -273,15 +274,30 @@ export const screech = (intensity = 1) => {
   } catch { /* silent */ }
 }
 
+// Occasional distant traffic horn from the AI stream (called ~4 Hz from
+// AudioSystem with the live AI count; rate-limited + culled in play2D).
+// Zero allocation: module-level timer only.
+let lastHornAt = 0
+export const trafficHorn = (nearCount = 0) => {
+  const now = typeof performance !== 'undefined' ? performance.now() : 0
+  if (now - lastHornAt < 9000) return
+  lastHornAt = now
+  // busier streets honk more often — 8% base, +6% per AI car in earshot
+  if (Math.random() > 0.08 + Math.min(0.4, nearCount * 0.06)) return
+  play2D('horn', 0.85 + Math.random() * 0.3, 0.25)
+}
+
 // --- Day/night city beds: crossfade by timeOfDay --------------------------
 const beds = { dayId: null, nightId: null, dayVol: 0, nightVol: 0 }
 /**
- * Crossfade the two ambient beds by hour (0-24). Day bed peaks at noon, night
- * bed peaks at midnight; both ride on the single ambient buffer (rate-shifted
- * so they don't phase). Call throttled (~4 Hz is plenty).
+ * Crossfade the two ambient beds by hour (0-24). Day bed (ambient.wav) peaks
+ * at noon, night bed (city-hum.wav) peaks at midnight — two REAL files, so
+ * the "city sounds remain the same" flat-bed bug (both voices on one buffer)
+ * cannot regress. Call throttled (~4 Hz is plenty).
  */
 export const bedsUpdate = (hour) => {
   const day = sfx.ambient
+  const night = sfx['city-hum'] || sfx.ambient
   if (!day || !loaded2D) return
   const h = ((hour % 24) + 24) % 24
   // Night weight: full at 0h, zero 8h-17h, ramps at dawn/dusk.
@@ -297,9 +313,9 @@ export const bedsUpdate = (hour) => {
       day.loop(true, beds.dayId)
     }
     if (beds.nightId == null) {
-      beds.nightId = day.play()
-      day.rate(0.7, beds.nightId)
-      day.loop(true, beds.nightId)
+      beds.nightId = night.play()
+      night.rate(0.85, beds.nightId)
+      night.loop(true, beds.nightId)
     }
     const base = 0.22 * master.v
     const dVol = base * (0.25 + 0.75 * dayW)
@@ -310,7 +326,7 @@ export const bedsUpdate = (hour) => {
     }
     if (Math.abs(nVol - beds.nightVol) > 0.005) {
       beds.nightVol = nVol
-      day.volume(nVol, beds.nightId)
+      night.volume(nVol, beds.nightId)
     }
   } catch { /* ignore */ }
 }
@@ -352,6 +368,8 @@ export const audio = {
   stepSurface,
   /** Tire screech burst (drift > 15 deg + speed). */
   screech,
+  /** Occasional distant traffic horn (AI stream ambience). */
+  horn: trafficHorn,
   /** Day/night bed crossfade (call throttled with the game clock). */
   bedsUpdate,
   setListenerXZ,

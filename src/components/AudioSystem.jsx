@@ -11,7 +11,7 @@ import { useThree, useFrame } from '@react-three/fiber'
 import useGameStore, { Phase } from '../store/useGameStore'
 import { getCarBody } from './Car'
 import { AI_CAR_LIVE } from './Car'
-import { audio, getListener, setListenerXZ, bedsUpdate } from '../lib/audio'
+import { audio, getListener, setListenerXZ, bedsUpdate, trafficHorn } from '../lib/audio'
 
 // Throttle for the day/night bed crossfade (uses the ~4 Hz game clock).
 let lastBedsAt = 0
@@ -69,6 +69,20 @@ const AudioSystem = () => {
     if (on && now - lastBedsAt > 250) {
       lastBedsAt = now
       try { bedsUpdate(gs.gameTime ?? 8) } catch { /* beds not loaded yet */ }
+      // Distant traffic horns: the street feels alive without a new asset per
+      // car — count AI cars in earshot (already published, no alloc).
+      try {
+        let near = 0
+        const cp = state.camera.position
+        for (let k = 0; k < 5; k += 1) {
+          const lv = AI_CAR_LIVE[k]
+          if (!lv) continue
+          const dx = lv.x - cp.x
+          const dz = lv.z - cp.z
+          if (dx * dx + dz * dz < 120 * 120) near += 1
+        }
+        trafficHorn(near)
+      } catch { /* ambience only */ }
     }
     // Driven car: live rapier body.
     let driven = null
@@ -85,6 +99,10 @@ const AudioSystem = () => {
     audio.engineUpdate(0, driven ? driven.x : 0, driven ? driven.y : 0, driven ? driven.z : 0,
       driven ? Math.min(1, driven.speed / 17) : 0, !!driven)
     // AI traffic: AI_CAR_LIVE[i] = {x, z, speed, yaw} mutated in place by AiCar.
+    // Kinematic bodies still push dynamic ones through CONTACTS (solver), but
+    // car-vs-car IMPACT events + crash damage only fire between two colliders
+    // that both accept GROUP_CAR — the filter below is two-sided, so AI cars
+    // now thump parked cars (and each other) instead of ghosting through.
     for (let i = 0; i < 5; i += 1) {
       const live = AI_CAR_LIVE[i]
       const active = on && !!live

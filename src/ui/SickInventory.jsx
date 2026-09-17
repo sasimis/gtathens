@@ -81,7 +81,12 @@ const SickInventory = () => {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   // Owns TAB (hold = wheel) and I (toggle grid). Inventory.jsx no longer
-  // listens for either, so the two surfaces never fight.
+  // listens for either, so the two surfaces never fight. Tab is a focus key:
+  // capture-phase listeners + preventDefault on BOTH edges, and the equip
+  // target is read from a ref (the keyup closure would otherwise hold the
+  // STALE hover from the keydown render and equip the wrong slot).
+  const hoverRef = useRef(hover)
+  hoverRef.current = hover
   useEffect(() => {
     const down = (e) => {
       if (e.repeat) return
@@ -90,27 +95,40 @@ const SickInventory = () => {
       if (e.code === 'Tab') {
         e.preventDefault()
         tabDown.current = true
+        if (st.inventoryOpen) st.closeInventory()
         setHover(st.equipped)
         setWheel(true)
-        audio.play('wheel')
+        try { audio.play('wheel') } catch {}
       } else if (e.code === 'KeyI') {
+        if (tabDown.current) return // wheel owns Tab; I must not fight it
         st.toggleInventory()
-        audio.play('wheel')
+        try { audio.play('wheel') } catch {}
       }
     }
     const up = (e) => {
       if (e.code !== 'Tab' || !tabDown.current) return
+      e.preventDefault()
       tabDown.current = false
       setWheel(false)
-      if (hover) useGameStore.getState().equipWeapon(hover)
+      const id = hoverRef.current
+      if (id) useGameStore.getState().equipWeapon(id)
+      setHover(null)
     }
-    window.addEventListener('keydown', down)
-    window.addEventListener('keyup', up)
+    const onBlur = () => {
+      // Alt-Tab away with the wheel held: drop the stuck-open overlay so it
+      // can never sit on screen as a phantom bar on return.
+      tabDown.current = false
+      setWheel(false)
+    }
+    window.addEventListener('keydown', down, { capture: true })
+    window.addEventListener('keyup', up, { capture: true })
+    window.addEventListener('blur', onBlur)
     return () => {
-      window.removeEventListener('keydown', down)
-      window.removeEventListener('keyup', up)
+      window.removeEventListener('keydown', down, { capture: true })
+      window.removeEventListener('keyup', up, { capture: true })
+      window.removeEventListener('blur', onBlur)
     }
-  }, [hover])
+  }, [])
 
   // Q/E or arrows sweep the wheel while it is held (no pointer needed).
   useEffect(() => {

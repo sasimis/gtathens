@@ -28,11 +28,14 @@ import {
   HALF,
   CarDriver,
   CarModel,
+  crash,
+  addAiDamage,
   getCarBody,
   isAiCarOccupied,
   setAiCarOccupied,
   setAiLive,
 } from './Car'
+import { audio } from '../lib/audio'
 import Protagonist, { CHARACTERS } from './Protagonist'
 
 export const PED_COUNT = 10
@@ -100,7 +103,12 @@ const GROUP_GROUND = 0x0001
 const GROUP_PLAYER = 0x0002
 const GROUP_CAR = 0x0004
 const GROUP_BUILDING = 0x0008
+// Peds accept everything (they must collide with cars AND be hittable).
 const PED_GROUPS = GROUP_PLAYER | ((GROUP_GROUND | GROUP_PLAYER | GROUP_CAR | GROUP_BUILDING) << 16)
+// AI traffic accepts everything INCLUDING other cars: Rapier only runs the
+// solver + collision events when EACH side's filter accepts the other, so an
+// AI body that filtered out GROUP_CAR would ghost straight through parked
+// cars and its siblings (the reported "npc cars do not collide" bug).
 const AI_CAR_GROUPS = GROUP_CAR | ((GROUP_GROUND | GROUP_PLAYER | GROUP_CAR | GROUP_BUILDING) << 16)
 
 const buildPedSpawns = (data, spawn, count) => {
@@ -408,6 +416,12 @@ const AiCar = ({ route, seed, index = 0 }) => {
   const gRef = useRef(null)
   const st = useRef({ seg: 0, t: 0, x: route[0][0], z: route[0][1], yaw: 0, speed: 0 })
   const s = st.current
+  // Register this car's live slot IMMEDIATELY (before the first frame) so the
+  // O(n²) separation loop in siblings never reads an empty/stale slot and
+  // teleports a car across the map on its first overlap test.
+  if (!crash.aiLive[index] || !Number.isFinite(crash.aiLive[index].x)) {
+    crash.setAiLive(index, s.x, s.z)
+  }
   // Deterministic real car model per traffic car (same FBX pack as parked
   // cars — no more colored placeholder boxes). Road-safe sizes only: the FBX
   // pack's bus / truck-with-trailer are ~13.7 m long and would block lanes.
@@ -450,16 +464,61 @@ const AiCar = ({ route, seed, index = 0 }) => {
     s.z = nz
     s.yaw = Math.atan2(dx, dz)
     // Publish for the audio system's positional engine nodes (stable object,
-    // mutated in place — no allocation).
+    // mutated in place — no allocation). Speed drives the engine pitch.
     setAiLive(index, nx, nz)
+    try { crash.setAiLive(index, nx, nz) } catch { /* seam not mounted */ }
+    try {
+      const live = crash.aiLive[index]
+      if (live) live.speed = s.speed
+    } catch { /* ignore */ }
+    // --- AI-vs-AI separation (the "npc cars do not collide" fix).
+    // Kinematic bodies never receive solver impulses, so two AI cars on
+    // crossing routes would overlap forever. Cheap O(n^2) circle push over
+    // the 5 live positions (zero alloc, plain locals) BEFORE the kinematic
+    // teleport: pairs closer than r1+r2 split apart along the contact normal
+    // and both slow for the near-miss. Only finite slots take part — a car
+    // still on its spawn frame must not shove (or be shoved by) anyone.
+    // NOTE: this deliberately does NOT touch parked cars — those are real
+    // Rapier bodies and the solver already separates them (see AI_CAR_GROUPS
+    // note above); pushing their livePos here would desync enter detection.
+    try {
+      const others = crash.aiLive
+      const me = others[index]
+      const myR = Math.max(half[0], half[2]) * 0.55
+      if (me && Number.isFinite(me.x) && Number.isFinite(me.z)) {
+        for (let k = 0; k < others.length; k += 1) {
+          if (k === index) continue
+          const o = others[k]
+          if (!o || !Number.isFinite(o.x) || !Number.isFinite(o.z)) continue
+          let ddx = s.x - o.x
+          let ddz = s.z - o.z
+          let dist = Math.hypot(ddx, ddz)
+          const minD = myR + 2.2
+          if (dist < minD) {
+            if (dist < 1e-4) { ddx = Math.sin(index * 2.4); ddz = Math.cos(index * 2.4); dist = 1e-4 }
+            const push = (minD - dist) * 0.5
+            const px = (ddx / dist) * push
+            const pz = (ddz / dist) * push
+            s.x += px
+            s.z += pz
+            o.x -= px
+            o.z -= pz
+            s.speed = Math.min(s.speed, 2.5)
+            // thump + a dent when they actually touch (rate-limited in play2D)
+            try { audio.crash(0.25) } catch { /* ambience */ }
+            try { addAiDamage(index, 0.02) } catch { /* ignore */ }
+          }
+        }
+      }
+    } catch { /* separation is best-effort */ }
     try {
       const t = rb.translation()
       const y = Number.isFinite(t.y) ? t.y : 0.5
-      setKb(rb, nx, y, nz)
+      setKb(rb, s.x, y, s.z)
       try { rb.setRotation({ x: 0, y: Math.sin(s.yaw / 2), z: 0, w: Math.cos(s.yaw / 2) }, true) } catch (e) { /* noop */ }
     } catch (e) { /* noop */ }
     if (gRef.current) {
-      gRef.current.position.set(nx, 0, nz)
+      gRef.current.position.set(s.x, 0, s.z)
       gRef.current.rotation.set(0, s.yaw, 0)
     }
   })
@@ -472,6 +531,12 @@ const AiCar = ({ route, seed, index = 0 }) => {
         colliders={false}
         position={[0, half[1], 0]}
         collisionGroups={AI_CAR_GROUPS}
+        // Contact + force events so the driven car FEELS the ram (CarDriver
+        // crash path) and parked-car handlers see the AI side of the pair.
+        // Kinematic bodies never take solver impulses themselves — the
+        // separation loop above handles AI-vs-AI; the solver handles AI vs
+        // dynamic (driven/loose) cars.
+        onCollisionEnter={(p) => { try { audio.crash(0.3) } catch { /* ignore */ } }}
       >
         <CuboidCollider args={[half[0], half[1], half[2]]} />
       </RigidBody>

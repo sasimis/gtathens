@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import useGameStore from '../store/useGameStore'
 
 const KeyIcon = ({ children, wide }) => (
@@ -133,6 +133,20 @@ const InputPrompts = () => {
   const driving = useGameStore((s) => s.driving)
   const phase = useGameStore((s) => s.phase)
   const [useGamepad, setUseGamepad] = React.useState(false)
+  const [visible, setVisible] = React.useState(false)
+
+  // The prompts panel is opt-in (F1): an always-on full-height fixed column
+  // reads as a dark "sidebar" bar and steals pointer events from the canvas.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.code === 'F1') {
+        e.preventDefault()
+        setVisible((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   React.useEffect(() => {
     const onConnect = () => setUseGamepad(true)
@@ -148,11 +162,12 @@ const InputPrompts = () => {
   }, [])
 
   if (phase !== 'PLAYING' && phase !== 'PAUSED') return null
+  if (!visible) return null
 
   return (
     <div className="input-prompts">
       <div className="prompts-header">
-        <span className="prompts-title">CONTROLS</span>
+        <span className="prompts-title">CONTROLS (F1)</span>
         <button
           className="prompts-toggle"
           onClick={() => setUseGamepad(g => !g)}

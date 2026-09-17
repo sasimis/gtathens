@@ -288,6 +288,7 @@ const useKenneyMeshes = () => {
  */
 const ROAD_CLEAR_M = 2 // clearance beyond the asphalt edge for the center test
 const OUTLINE_ROAD_MARGIN = 2 // outline-corner test margin beyond the asphalt edge
+const NUDGE_MAX_M = 8 // secondary fix: shift (not delete) road-clipping buildings
 
 /**
  * Squared distance from point (px,pz) to segment (x1,z1)-(x2,z2), plus the

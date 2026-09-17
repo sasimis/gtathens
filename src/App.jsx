@@ -6,6 +6,7 @@ import Player from './components/Player'
 import Car, { ParkedCars, PLAYER_COLLISION_GROUPS } from './components/Car'
 import MenuCamera from './components/MenuCamera'
 import MenuRoot from './ui/MenuRoot'
+import InputPrompts from './ui/InputPrompts'
 import DayNightCycle from './components/DayNightCycle'
 import DebugOverlay from './components/DebugOverlay'
 import Npcs from './components/Npcs'
@@ -173,6 +174,7 @@ const App = () => {
         <button onClick={toggleColliders} title="Show collision shapes (G)">HITBOX</button>
       </div>
       <MenuRoot />
+      <InputPrompts />
       <Inventory />
       <SickInventory />
     </div>

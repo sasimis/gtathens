@@ -81,6 +81,7 @@ const rnd = () => {
 }
 
 // --- city hum: dark brown-ish noise bed + faint mains hum, 5 s loop --------
+// (kept as the NIGHT layer; the brighter day bed is ambient.wav below)
 {
   const n = secs(5)
   const x = new Float64Array(n)
@@ -94,6 +95,27 @@ const rnd = () => {
     x[i] = v
   }
   writeWav('city-hum.wav', norm(makeLoop(x, 0.06), 0.85))
+}
+
+// --- ambient city bed (public/sounds/ambient.wav): breeze + distant --------
+// --- traffic. Brighter than the night hum so the day/night crossfade has
+// --- somewhere to go (both ride on real files now, no aliasing).
+{
+  const n = secs(6)
+  const x = new Float64Array(n)
+  let ns = { y: 0 }, br = { y: 0 }, lp = { y: 0 }
+  for (let i = 0; i < n; i += 1) {
+    const t = i / SR
+    // airy breeze: slow-swelling filtered noise
+    const breeze = lowpass(rnd() * 2, 0.09, ns) * (1.6 + 0.9 * Math.sin(TAU * 0.23 * t))
+    // distant traffic: very low brown rumble with slow swells
+    const rumble = lowpass(lowpass(rnd() * 2, 0.05, lp), 0.02, br) * 5
+    // sparse distant horns: two soft sine pips per loop, heavily faded
+    const hornT = (t % 3) / 3
+    const horn = Math.sin(TAU * 311 * t) * 0.05 * Math.exp(-hornT * 9) * (t < 3 ? 1 : 0)
+    x[i] = (breeze * 0.7 + rumble + horn) * (1 + 0.12 * Math.sin(TAU * 0.31 * t))
+  }
+  writeWav('ambient.wav', norm(makeLoop(x, 0.08), 0.85))
 }
 
 // --- one-shots -------------------------------------------------------------
@@ -148,11 +170,17 @@ writeWav('wheel.wav', norm(burst(0.2, (t) => {
   return lowpass(rnd() * 2, 0.55, s) * env
 })))
 
-// crash: metallic clatter (car damage)
+// Crash: metallic clatter (car damage)
 writeWav('crash.wav', norm(burst(0.45, (t) => {
   const clatter = rnd() * Math.exp(-t * 16)
   const ding = (Math.sin(TAU * 240 * t) * 0.4 + Math.sin(TAU * 397 * t) * 0.3) * Math.exp(-t * 11)
   return clatter * 0.8 + ding
+})))
+
+// horn: short two-tone traffic horn (distant car horn one-shot)
+writeWav('horn.wav', norm(burst(0.5, (t) => {
+  const env = Math.exp(-t * 5)
+  return (Math.sin(TAU * 370 * t) * 0.5 + Math.sin(TAU * 466 * t) * 0.35) * env
 })))
 
 console.log('done -> ' + outDir)
