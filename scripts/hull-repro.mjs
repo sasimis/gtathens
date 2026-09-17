@@ -6,8 +6,9 @@
 //   node scripts/hull-repro.mjs
 import RAPIER from '@dimforge/rapier3d-compat'
 import { writeFileSync, appendFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
-const F = new URL('./hull-repro.txt', import.meta.url).pathname.replace(/^\//, '')
+const F = fileURLToPath(new URL('./hull-repro.txt', import.meta.url))
 writeFileSync(F, '')
 const w = (s) => appendFileSync(F, String(s) + '\r\n')
 

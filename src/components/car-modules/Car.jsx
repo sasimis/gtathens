@@ -94,7 +94,7 @@ export const Car = React.memo(function Car({
       onCollisionEnter={spotIndex != null ? onHit : undefined}
       onContactForce={spotIndex != null ? onForce : undefined}
     >
-      <CuboidCollider args={half} position={[0, half[1], 0]} friction={1} density={40} />
+      <CuboidCollider args={half} position={[0, half[1], 0]} friction={0.8} density={40} restitution={0.15} />
       <group ref={modelRef}>
         <Suspense fallback={null}>
           <CarModel id={key} damage={dmg} seed={dentSeed.current} />

@@ -1,5 +1,5 @@
 
-import { GROUP_CAR, HIT_SPEED_MIN, HIT_FORCE_MIN, HIT_DEBOUNCE_MS, PUSH_MIN, PUSH_MAX } from './constants.js'
+import { GROUP_CAR, GROUP_BUILDING, HIT_SPEED_MIN, HIT_FORCE_MIN, HIT_DEBOUNCE_MS, PUSH_MIN, PUSH_MAX } from './constants.js'
 import { audio } from '../../lib/audio'
 
 class CrashManager {
@@ -108,8 +108,12 @@ export const isOnAsphalt = (x, z) => {
 // street count as asphalt while still leaving parks/plazas/fields off-road.
 const ASPHALT_MIN_HALF_W = 5.0
 
-const isCarCollider = (c) => {
+export const isCarCollider = (c) => {
   try { return (c?.collisionGroups?.() & 0xffff & GROUP_CAR) !== 0 } catch { return false }
+}
+
+export const isBuildingCollider = (c) => {
+  try { return (c?.collisionGroups?.() & 0xffff & GROUP_BUILDING) !== 0 } catch { return false }
 }
 
 export const addDamage = (i, amount) => {
@@ -197,21 +201,47 @@ export const knockLoose = (i, me, other, speed) => {
 export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) => {
   const me = payload?.target?.rigidBody
   const orb = payload?.other?.rigidBody
-  if (!me || !orb || orb === me) return
-  // Gate on the FIXED side for exactly-once semantics per contact pair: rapier
-  // dispatches every event to BOTH bodies' handlers, but only the parked
-  // (fixed) one acts. Unknown body types (no isFixed/isDynamic) are ignored.
-  if (typeof me.isFixed !== 'function' || !me.isFixed()) return
-  if (typeof orb.isDynamic !== 'function' || !orb.isDynamic()) return
-  if (!isCarCollider(payload.other.collider)) return
-  if (spotIndex == null || spotIndex < 0 || crash.loose.has(spotIndex)) return
-  const lv = orb.linvel()
-  const speed = Math.hypot(lv.x, lv.z)
-  if (speed < HIT_SPEED_MIN) return
-  const now = performance.now()
-  if (now - (crash.lastHit[spotIndex] ?? 0) < HIT_DEBOUNCE_MS) return
-  if (viaForce && forceMag < HIT_FORCE_MIN) return
-  crash.lastHit[spotIndex] = now
-  audio.crash(speed / 30) // GTA-style thump, louder the harder the ram
-  knockLoose(spotIndex, me, orb, speed)
+  if (!me) return
+
+  // 1. Fixed car being hit by dynamic car (Parked car knock-loose path)
+  if (typeof me.isFixed === 'function' && me.isFixed()) {
+    if (!orb || typeof orb.isDynamic !== 'function' || !orb.isDynamic()) return
+    if (!isCarCollider(payload.other?.collider)) return
+    if (spotIndex == null || spotIndex < 0 || crash.loose.has(spotIndex)) return
+    const lv = orb.linvel ? orb.linvel() : { x: 0, z: 0 }
+    const speed = Math.hypot(lv.x, lv.z)
+    if (speed < HIT_SPEED_MIN) return
+    const now = performance.now()
+    if (now - (crash.lastHit[spotIndex] ?? 0) < HIT_DEBOUNCE_MS) return
+    if (viaForce && forceMag < HIT_FORCE_MIN) return
+    crash.lastHit[spotIndex] = now
+    audio.crash(speed / 30) // GTA-style thump, louder the harder the ram
+    knockLoose(spotIndex, me, orb, speed)
+    return
+  }
+
+  // 2. Dynamic / driven / loose car colliding with building, environment, AI traffic, or other cars
+  if (spotIndex != null && spotIndex >= 0 && typeof me.isDynamic === 'function' && me.isDynamic()) {
+    const lv = me.linvel ? me.linvel() : { x: 0, z: 0 }
+    let speed = Math.hypot(lv.x, lv.z)
+    if (orb && typeof orb.linvel === 'function') {
+      const olv = orb.linvel()
+      speed = Math.max(speed, Math.hypot(lv.x - olv.x, lv.z - olv.z))
+    }
+    if (speed < HIT_SPEED_MIN) return
+    const now = performance.now()
+    if (now - (crash.lastHit[spotIndex] ?? 0) < HIT_DEBOUNCE_MS) return
+    if (viaForce && forceMag < HIT_FORCE_MIN) return
+
+    const otherCol = payload.other?.collider
+    const isBuilding = isBuildingCollider(otherCol)
+    const isCar = isCarCollider(otherCol)
+
+    if (isBuilding || isCar) {
+      crash.lastHit[spotIndex] = now
+      audio.crash(speed / 30)
+      const dmgAmt = Math.min(0.35, 0.04 + speed * 0.018)
+      addDamage(spotIndex, dmgAmt)
+    }
+  }
 }
