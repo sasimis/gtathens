@@ -129,6 +129,7 @@ export const ParkedCars = ({ spawn = [0, 0], count = PARK_COUNT, radius = PARK_R
           modelRef={carRefs[driving].model}
           spotIndex={driving}
           half={HALF[normalizeId(spots[driving].id)]}
+          carId={spots[driving].id}
         />
       )}
     </>

@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import useGameStore, { Phase } from '../../store/useGameStore'
 import { CameraRig, OrbitInput } from '../FollowCamera'
 import { BTN, getGamepad, padEdge, padHeld, padValue, readStick } from '../../lib/gamepad'
-import { CAR_MAX_SPEED, CAR_REVERSE_MAX, CAR_TURN_RATE, LOOSE_MAX_MS } from './constants.js'
+import { CAR_MAX_SPEED, CAR_REVERSE_MAX, CAR_TURN_RATE, LOOSE_MAX_MS, getCarTuning } from './constants.js'
 import { crash, isOnAsphalt, aiDamage, setAiCarOccupied, setRigidBodyType } from './crashManager.js'
 import { audio } from '../../lib/audio'
 
@@ -23,7 +23,7 @@ const KEY_MAP = {
   Space: 'brake',
 }
 
-export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, aiIndex = null }) => {
+export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, aiIndex = null, carId = null }) => {
   const phase = useGameStore((s) => s.phase)
   const setCarDamage = useGameStore((s) => s.setCarDamage)
   const { world, rapier } = useRapier()
@@ -32,6 +32,7 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
   const mountedAt = useRef(typeof performance !== 'undefined' ? performance.now() : 0)
   const keys = useRef({ fwd: false, back: false, left: false, right: false, brake: false })
   const dmgSync = useRef({ idx: null, val: 0 })
+  const steerRef = useRef(0)
 
   const exitCar = useCallback(() => {
     const store = useGameStore.getState()
@@ -81,6 +82,10 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       }
     }
 
+    if (modelRef?.current) {
+      modelRef.current.rotation.x = 0
+      modelRef.current.rotation.z = 0
+    }
     if (spotIndex != null && spotIndex >= 0) crash.setLive(spotIndex, t.x, t.z)
     if (aiIndex != null && aiIndex >= 0 && typeof crash.setAiLive === 'function') crash.setAiLive(aiIndex, t.x, t.z)
     store.setRespawn({
@@ -141,34 +146,83 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, 1)
     fwd.normalize()
 
-    const speed = v.x * fwd.x + v.z * fwd.z
-    // Tire screech: lateral slide (drift angle > ~15 deg) at speed. The angle
-    // is velocity-vs-nose; gated inside audio.screech (180 ms) so it bursts.
-    const planarV = Math.hypot(v.x, v.z)
-    if (planarV > 4.2) { // ~15 km/h floor
-      const cosA = (v.x * fwd.x + v.z * fwd.z) / planarV
-      if (cosA < 0.966) { // cos(15 deg) — sliding sideways, not rolling straight
-        try { audio.screech(Math.min(1, planarV / 14)) } catch { /* silent */ }
-      }
-    }
+    const tuning = getCarTuning(carId)
+    const maxSpeed = tuning.maxSpeed
+    const reverseMax = tuning.reverseMax
+    const baseTurnRate = tuning.turnRate
+    const accelTau = tuning.accelTau
+
+    right.crossVectors(fwd, up).normalize()
+
+    const fwdV = v.x * fwd.x + v.z * fwd.z
+    const sideV = v.x * right.x + v.z * right.z
+    const planarSpeed = Math.hypot(v.x, v.z)
+
     const wantF = keys.current.fwd || gpF > 0.15
     const wantB = keys.current.back || gpB > 0.15
+    const isBraking = keys.current.brake || gpBr
     const aF = Math.max(keys.current.fwd ? 1 : 0, gpF)
     const aB = Math.max(keys.current.back ? 1 : 0, gpB)
     const power = 1 - 0.65 * dmg
-    // Asphalt is fast, grass drags (throttled road-geometry check).
+
     let surfaceMul = 1
     try { surfaceMul = isOnAsphalt(tNow.x, tNow.z) ? 1 : 0.55 } catch (e) { surfaceMul = 1 }
-    const throttle = wantF ? CAR_MAX_SPEED * power * surfaceMul * aF : wantB ? -CAR_REVERSE_MAX * power * Math.max(0.6, surfaceMul) * aB : 0
-    const tau = wantF || wantB ? 0.35 : 0.22
-    const lerp = 1 - Math.pow(0.0015, delta / tau)
-    let target = speed + (throttle - speed) * lerp
-    if (keys.current.brake || gpBr) target = Math.abs(speed) > 0.4 ? speed * Math.max(0, 1 - 5 * delta) : 0
-    rb.setLinvel({ x: fwd.x * target, y: v.y, z: fwd.z * target }, true)
 
-    const steer = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0) + gpS
-    const turnFactor = Math.max(0.4, Math.min(1, Math.abs(speed) / 7))
-    rb.setAngvel({ x: 0, y: -steer * CAR_TURN_RATE * turnFactor * (1 - 0.3 * dmg), z: 0 }, true)
+    const targetFwd = wantF
+      ? maxSpeed * power * surfaceMul * aF
+      : wantB
+      ? -reverseMax * power * Math.max(0.6, surfaceMul) * aB
+      : 0
+
+    const tau = wantF || wantB ? accelTau : 0.22
+    const lerpRate = 1 - Math.pow(0.0015, delta / tau)
+    let newFwdV = fwdV + (targetFwd - fwdV) * lerpRate
+    if (isBraking) {
+      newFwdV = Math.abs(fwdV) > 0.4 ? fwdV * Math.max(0, 1 - 6 * delta) : 0
+    }
+
+    let grip = tuning.grip
+    if (isBraking) {
+      grip = 0.40
+    } else if (Math.abs(sideV) > 2.0 && planarSpeed > 5.0) {
+      grip = 0.65
+    }
+    const lateralDecay = 1 - Math.pow(1 - grip, delta * 30)
+    let newSideV = sideV * (1 - lateralDecay)
+
+    if (planarSpeed > 4.2 && (Math.abs(sideV) > 2.0 || (isBraking && planarSpeed > 6.0))) {
+      try { audio.screech(Math.min(1, planarSpeed / 14)) } catch { /* silent */ }
+    }
+
+    const newVx = fwd.x * newFwdV + right.x * newSideV
+    const newVz = fwd.z * newFwdV + right.z * newSideV
+    rb.setLinvel({ x: newVx, y: v.y, z: newVz }, true)
+
+    const steerRaw = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0) + gpS
+    const isReversing = fwdV < -0.2 || (wantB && !wantF && fwdV < 0.2)
+    const steer = isReversing ? -steerRaw : steerRaw
+
+    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 12))
+
+    const absSpeed = Math.abs(fwdV)
+    let turnFactor = Math.max(0.3, Math.min(1, absSpeed / 5))
+    if (absSpeed > 16) {
+      turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
+    }
+    if (isBraking && absSpeed > 2) {
+      turnFactor *= 1.35
+    }
+
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg)
+    rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
+
+    if (modelRef?.current) {
+      const accelAmt = (newFwdV - fwdV) / Math.max(0.01, delta)
+      const pitchTarget = Math.max(-0.06, Math.min(0.06, -accelAmt * 0.003))
+      const rollTarget = Math.max(-0.08, Math.min(0.08, -steerRef.current * (planarSpeed / 15) * 0.05))
+      modelRef.current.rotation.x = THREE.MathUtils.lerp(modelRef.current.rotation.x, pitchTarget, Math.min(1, delta * 8))
+      modelRef.current.rotation.z = THREE.MathUtils.lerp(modelRef.current.rotation.z, rollTarget, Math.min(1, delta * 8))
+    }
   })
 
   useEffect(() => {

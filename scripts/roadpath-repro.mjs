@@ -27,6 +27,7 @@
 // Always writes scripts/roadpath-repro.txt and exits 0, so a failed check still
 // leaves a readable report.
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import {
   STITCH_R,
   buildRoadPathfinder,
@@ -39,7 +40,7 @@ import { DRIVABLE, buildSegments } from '../src/lib/worldData.js'
 /** A stitch edge is at most STITCH_R long; hops may be one stitch longer. */
 const STITCH_SLOP = STITCH_R + 0.5
 
-const F = new URL('./roadpath-repro.txt', import.meta.url).pathname.replace(/^\//, '')
+const F = fileURLToPath(new URL('./roadpath-repro.txt', import.meta.url))
 writeFileSync(F, '')
 const w = (s) => appendFileSync(F, String(s) + '\r\n')
 const hr = (s) => w(`\r\n--- ${s} ---`)
@@ -81,7 +82,7 @@ const connectivityOf = (pf) => {
 /* real data                                                           */
 /* ------------------------------------------------------------------ */
 
-const data = JSON.parse(readFileSync(new URL('../public/map_data.json', import.meta.url), 'utf8'))
+const data = JSON.parse(readFileSync(fileURLToPath(new URL('../public/map_data.json', import.meta.url)), 'utf8'))
 const segments = buildSegments(data, (t) => DRIVABLE.has(t))
 const pf = buildRoadPathfinder(segments)
 const stats = pf.stats()

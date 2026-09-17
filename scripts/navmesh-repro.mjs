@@ -20,6 +20,7 @@
 // Always writes scripts/navmesh-repro.txt and exits 0, so a failed check still
 // leaves a readable report.
 import { appendFileSync, writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import {
   NAV_DEFAULTS,
   buildNavGeometry,
@@ -38,7 +39,7 @@ import {
   samplePath,
 } from '../src/lib/navmesh.js'
 
-const F = new URL('./navmesh-repro.txt', import.meta.url).pathname.replace(/^\//, '')
+const F = fileURLToPath(new URL('./navmesh-repro.txt', import.meta.url))
 writeFileSync(F, '')
 const w = (s) => appendFileSync(F, String(s) + '\r\n')
 const hr = (s) => w(`\r\n--- ${s} ---`)

@@ -47,3 +47,32 @@ export const LOOSE_MAX_MS = 6000
 export const CAR_MAX_SPEED = 17
 export const CAR_REVERSE_MAX = 7
 export const CAR_TURN_RATE = 2.2
+
+export const CAR_TUNING = {
+  sports: { maxSpeed: 23, reverseMax: 9, turnRate: 2.6, accelTau: 0.28, grip: 0.88 },
+  roadster: { maxSpeed: 22, reverseMax: 8.5, turnRate: 2.6, accelTau: 0.29, grip: 0.88 },
+  'police-sports': { maxSpeed: 23, reverseMax: 9, turnRate: 2.6, accelTau: 0.28, grip: 0.88 },
+  muscle: { maxSpeed: 21, reverseMax: 8, turnRate: 2.4, accelTau: 0.32, grip: 0.85 },
+  'muscle-2': { maxSpeed: 21, reverseMax: 8, turnRate: 2.4, accelTau: 0.32, grip: 0.85 },
+  'police-muscle': { maxSpeed: 21, reverseMax: 8, turnRate: 2.4, accelTau: 0.32, grip: 0.85 },
+  sedan: { maxSpeed: 18, reverseMax: 7, turnRate: 2.3, accelTau: 0.35, grip: 0.90 },
+  taxi: { maxSpeed: 18, reverseMax: 7, turnRate: 2.3, accelTau: 0.35, grip: 0.90 },
+  hatchback: { maxSpeed: 17, reverseMax: 7, turnRate: 2.4, accelTau: 0.34, grip: 0.90 },
+  'police-sedan': { maxSpeed: 19, reverseMax: 7.5, turnRate: 2.4, accelTau: 0.33, grip: 0.90 },
+  suv: { maxSpeed: 17, reverseMax: 6.5, turnRate: 2.1, accelTau: 0.38, grip: 0.86 },
+  pickup: { maxSpeed: 17, reverseMax: 6.5, turnRate: 2.1, accelTau: 0.38, grip: 0.86 },
+  'police-suv': { maxSpeed: 18, reverseMax: 7, turnRate: 2.2, accelTau: 0.36, grip: 0.88 },
+  van: { maxSpeed: 16, reverseMax: 6, turnRate: 2.0, accelTau: 0.40, grip: 0.88 },
+  ambulance: { maxSpeed: 16, reverseMax: 6, turnRate: 2.0, accelTau: 0.40, grip: 0.88 },
+  bus: { maxSpeed: 14, reverseMax: 5, turnRate: 1.7, accelTau: 0.48, grip: 0.92 },
+  firetruck: { maxSpeed: 14, reverseMax: 5, turnRate: 1.7, accelTau: 0.48, grip: 0.92 },
+  truck: { maxSpeed: 15, reverseMax: 5.5, turnRate: 1.8, accelTau: 0.45, grip: 0.92 },
+  'truck-with-trailer': { maxSpeed: 13, reverseMax: 4.5, turnRate: 1.6, accelTau: 0.50, grip: 0.92 },
+  limousine: { maxSpeed: 17, reverseMax: 6, turnRate: 1.9, accelTau: 0.42, grip: 0.88 },
+  'monster-truck': { maxSpeed: 18, reverseMax: 7, turnRate: 2.3, accelTau: 0.35, grip: 0.82 },
+}
+
+export const getCarTuning = (id) => {
+  const key = id ? id.toLowerCase() : 'sedan'
+  return CAR_TUNING[key] || { maxSpeed: CAR_MAX_SPEED, reverseMax: CAR_REVERSE_MAX, turnRate: CAR_TURN_RATE, accelTau: 0.35, grip: 0.90 }
+}
