@@ -192,43 +192,90 @@ export const initPositional = async (scene) => {
   }
 }
 
-const ENGINE_IDLE = 0.6
-const ENGINE_SPAN = 1.2 // 0.6 idle -> 1.8 at max speed (GTA-style pitch)
 const ENGINE_BASE = 0.55
 
-/**
- * Three-layer engine crossfade by speed: idle / mid / high bands blend by
- * speed01 (0-10 / 10-30 / 30-60 km/h mapped onto 0..1 by the caller), and the
- * playbackRate follows 0.8 + rpm/6000 so pitch glides instead of looping
- * robotically. One loop buffer, three band gains — no extra assets.
- */
-const engineBandGains = (speed01) => {
-  const idle = Math.max(0, 1 - speed01 * 3)
-  const high = Math.max(0, (speed01 - 0.55) / 0.45)
-  const mid = Math.max(0, 1 - idle - high)
-  return [idle, mid, high]
+const GEAR_SPEEDS = [0, 15, 35, 60, 85, 120] // km/h thresholds for gears 1..5
+
+const CAR_AUDIO_PROFILES = {
+  sports: { pitchMult: 1.22, idleRpm: 1000, maxRpm: 7200 },
+  roadster: { pitchMult: 1.22, idleRpm: 1000, maxRpm: 7200 },
+  'police-sports': { pitchMult: 1.22, idleRpm: 1000, maxRpm: 7200 },
+  muscle: { pitchMult: 1.15, idleRpm: 950, maxRpm: 6500 },
+  'muscle-2': { pitchMult: 1.15, idleRpm: 950, maxRpm: 6500 },
+  'police-muscle': { pitchMult: 1.15, idleRpm: 950, maxRpm: 6500 },
+  sedan: { pitchMult: 1.0, idleRpm: 850, maxRpm: 5800 },
+  taxi: { pitchMult: 1.0, idleRpm: 850, maxRpm: 5800 },
+  hatchback: { pitchMult: 1.05, idleRpm: 880, maxRpm: 6000 },
+  'police-sedan': { pitchMult: 1.08, idleRpm: 900, maxRpm: 6200 },
+  suv: { pitchMult: 0.92, idleRpm: 800, maxRpm: 5400 },
+  pickup: { pitchMult: 0.90, idleRpm: 800, maxRpm: 5200 },
+  'police-suv': { pitchMult: 0.95, idleRpm: 820, maxRpm: 5500 },
+  van: { pitchMult: 0.85, idleRpm: 750, maxRpm: 4800 },
+  ambulance: { pitchMult: 0.85, idleRpm: 750, maxRpm: 4800 },
+  bus: { pitchMult: 0.70, idleRpm: 700, maxRpm: 3800 },
+  firetruck: { pitchMult: 0.68, idleRpm: 700, maxRpm: 3600 },
+  truck: { pitchMult: 0.72, idleRpm: 720, maxRpm: 4000 },
+  'truck-with-trailer': { pitchMult: 0.65, idleRpm: 680, maxRpm: 3500 },
+  limousine: { pitchMult: 0.95, idleRpm: 800, maxRpm: 5200 },
+  'monster-truck': { pitchMult: 0.88, idleRpm: 850, maxRpm: 5000 },
 }
 
-/** Per-frame engine write: position + pitch + on/off. `speed01` in [0,1]. */
-export const engineUpdate = (i, x, y, z, speed01, active) => {
+const calculateEngineRpm = (speedKmh, carClass = 'sedan') => {
+  const profile = CAR_AUDIO_PROFILES[carClass ? carClass.toLowerCase() : 'sedan'] || CAR_AUDIO_PROFILES.sedan
+  const absSpeed = Math.abs(speedKmh)
+
+  let gear = 1
+  for (let i = 1; i < GEAR_SPEEDS.length - 1; i += 1) {
+    if (absSpeed >= GEAR_SPEEDS[i]) gear = i + 1
+  }
+
+  const gMin = GEAR_SPEEDS[gear - 1]
+  const gMax = GEAR_SPEEDS[gear]
+  const progress = Math.max(0, Math.min(1, (absSpeed - gMin) / (gMax - gMin)))
+
+  const minRpm = gear === 1 ? profile.idleRpm : profile.idleRpm * 1.8
+  const maxRpm = profile.maxRpm
+  const rpm = minRpm + progress * (maxRpm - minRpm)
+
+  return { rpm, gear, progress, profile }
+}
+
+/** Per-frame engine write: position + pitch + on/off with gear RPM simulation. */
+export const engineUpdate = (i, x, y, z, speed01, active, carClass = 'sedan', load = 0) => {
   const e = POOL.engines[i]
   if (!e || !POOL.ready) return
   e.obj.position.set(x, y, z)
   e.active = active
-  e.speed = speed01
-  const s = Math.max(0, Math.min(1, speed01))
-  const [gIdle, gMid, gHigh] = engineBandGains(s)
-  // rpm model: 900 idle -> ~6000 redline across the normalized speed band.
-  const rpm = 900 + s * 5100
-  const rate = 0.8 + rpm / 6000
-  const vol = active ? ENGINE_BASE * (0.5 + 0.5 * s) * master.v : 0
-  e.sound.setVolume(vol)
-  if (active) {
-    if (!e.sound.isPlaying) e.sound.play()
-    // Layered feel from one buffer: rate glides with rpm, band gains ride in
-    // the volume so idle putters while high-end screams (mid fills the gap).
-    e.sound.setPlaybackRate(rate * (0.75 + 0.25 * gIdle + 0.15 * gHigh + 0.1 * gMid))
-  } else if (e.sound.isPlaying) e.sound.pause()
+
+  if (e.smoothRate === undefined) e.smoothRate = 0.8
+  if (e.smoothVol === undefined) e.smoothVol = 0.0
+
+  if (!active) {
+    e.smoothVol += (0 - e.smoothVol) * 0.2
+    e.sound.setVolume(e.smoothVol)
+    if (e.smoothVol < 0.005 && e.sound.isPlaying) {
+      try { e.sound.pause() } catch {}
+    }
+    return
+  }
+
+  const speedKmh = Math.max(0, Math.min(1, speed01)) * 100
+  const { rpm, profile } = calculateEngineRpm(speedKmh, carClass)
+
+  let baseRate = (0.70 + (rpm / 6000) * 0.85) * profile.pitchMult
+  if (load > 0.1) baseRate *= 1.04
+  else if (load < -0.1) baseRate *= 0.97
+
+  const targetVol = ENGINE_BASE * (0.4 + 0.6 * Math.min(1, speed01 * 1.2 + Math.abs(load) * 0.2)) * master.v
+  e.smoothRate += (baseRate - e.smoothRate) * 0.18
+  e.smoothVol += (targetVol - e.smoothVol) * 0.18
+
+  e.sound.setVolume(e.smoothVol)
+  e.sound.setPlaybackRate(e.smoothRate)
+
+  if (!e.sound.isPlaying) {
+    try { e.sound.play() } catch {}
+  }
 }
 
 // --- Tire screech: synth fallback (no asset in public/sounds) -------------
