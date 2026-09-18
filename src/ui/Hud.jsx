@@ -11,6 +11,7 @@ const Hud = () => {
   const character = useGameStore((s) => s.character)
   const gameTime = useGameStore((s) => s.gameTime ?? 8)
   const carDamage = useGameStore((s) => s.carDamage ?? 0)
+  const weaponChangeLeft = useGameStore((s) => s.weaponChangeLeft)
   const char = CHARACTERS[Math.abs(character) % CHARACTERS.length] ?? CHARACTERS[0]
 
   const hours = Math.floor(gameTime)
@@ -36,6 +37,11 @@ const Hud = () => {
         <div className="hud-action">
           <kbd>F</kbd> enter vehicle
         </div>
+      )}
+
+      {/* Weapon-switch cooldown flash (brief dark overlay over the reticle) */}
+      {driving === null && weaponChangeLeft > 0 && (
+        <div className="hud-weapon-swap" />
       )}
     </>
   )

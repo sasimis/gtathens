@@ -1500,3 +1500,78 @@ kbd {
   cursor: pointer;
 }
 .debug-buttons button:hover { background: #0f0; color: #000; }
+
+/* ===== Crosshair ===== */
+.crosshair {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  pointer-events: none;
+  z-index: 20;
+  opacity: 1;
+  transition: opacity 0.08s ease;
+}
+
+.crosshair-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  margin: -2px 0 0 -2px;
+  background: #f5b800;
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(245, 184, 0, 0.6);
+}
+
+.crosshair-line,
+.crosshair-t,
+.crosshair-b,
+.crosshair-l,
+.crosshair-r {
+  position: absolute;
+  background: rgba(245, 184, 0, 0.95);
+  border-radius: 1px;
+  box-shadow: 0 0 4px rgba(245, 184, 0, 0.5);
+}
+
+.crosshair-t { top: 2px; left: 50%; width: 2px; height: 8px; margin-left: -1px; }
+.crosshair-b { bottom: 2px; left: 50%; width: 2px; height: 8px; margin-left: -1px; }
+.crosshair-l { left: 2px; top: 50%; width: 8px; height: 2px; margin-top: -1px; }
+.crosshair-r { right: 2px; top: 50%; width: 8px; height: 2px; margin-top: -1px; }
+
+.crosshair[data-swap="swapping"] {
+  opacity: 0.45;
+}
+
+.crosshair[data-hit="hit"] .crosshair-dot {
+  background: #ff5a4e;
+  box-shadow: 0 0 10px rgba(255, 90, 78, 0.9);
+}
+
+.crosshair[data-hit="hit"] .crosshair-line,
+.crosshair[data-hit="hit"] .crosshair-t,
+.crosshair[data-hit="hit"] .crosshair-b,
+.crosshair[data-hit="hit"] .crosshair-l,
+.crosshair[data-hit="hit"] .crosshair-r {
+  background: rgba(255, 90, 78, 0.95);
+  box-shadow: 0 0 6px rgba(255, 90, 78, 0.6);
+}
+
+/* Weapon-switch cooldown flash (brief dark screen overlay) */
+.hud-weapon-swap {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  z-index: 18;
+  opacity: 1;
+  animation: weapon-swap-out 0.18s ease-out forwards;
+}
+
+@keyframes weapon-swap-out {
+  to { opacity: 0; }
+}

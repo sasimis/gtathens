@@ -54,6 +54,8 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
   const inventoryOpen = useGameStore((s) => s.inventoryOpen)
   const driving = useGameStore((s) => s.driving)
   const cycleWeapon = useGameStore((s) => s.cycleWeapon)
+  const weaponChangeLeft = useGameStore((s) => s.weaponChangeLeft)
+  const drainWeaponChange = useGameStore((s) => s.drainWeaponChange)
   const def = equipped && equipped !== 'fists' ? WEAPONS[equipped] : null
 
   // Mouse / pointer fire (LMB), gated on phase + inventory + driving.
@@ -78,7 +80,7 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       window.removeEventListener('pointerdown', down)
       window.removeEventListener('pointerup', up)
     }
-  }, [phase, inventoryOpen, driving])
+    }, [phase, inventoryOpen, driving])
 
   useFrame(() => {
     const st = useGameStore.getState()
@@ -86,6 +88,11 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
     if (!world || st.phase !== Phase.PLAYING) {
       if (st.phase !== Phase.PLAYING) { fireState.wantFire = false; fireState.reloadEdge = false }
       return
+    }
+
+    // --- Weapon-switch cooldown drain (seconds) ---
+    if (weaponChangeLeft > 0) {
+      drainWeaponChange(0.016)
     }
 
     const eq = st.equipped
@@ -137,10 +144,14 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       fireState.reloadDur = wdef.melee ? 0.4 : 1.6
       audio.play(wdef.melee ? 'melee' : 'reload')
     }
-    fireState.reloadEdge = false
+        fireState.reloadEdge = false
 
     // --- fire / attack gating ---
     const want = fireState.wantFire
+    // While swapping weapons, suppress fire but keep the cooldown ticking down.
+    if (weaponChangeLeft > 0) {
+      return
+    }
     if (!want || !wrec || wrec.mag < 0) {
       if (!want) fireState.fireCooldown = 0
       return

@@ -58,6 +58,7 @@ const MenuRoot = () => {
       </AnimatePresence>
       {phase === Phase.PLAYING && <Hud />}
       {phase === Phase.PLAYING && <StreetHUD />}
+      {phase === Phase.PLAYING && <Crosshair />}
       {phase === Phase.PLAYING && <Minimap />}
     </div>
   )

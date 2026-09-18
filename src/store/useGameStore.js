@@ -73,7 +73,10 @@ const useGameStore = create(
       // Floating pickup toasts [{ id, text, kind }] + last hitmarker time.
       toasts: [],
       hitAt: 0,
-      killCount: 0,
+            killCount: 0,
+      // Remaining cooldown (seconds) while switching weapons. While > 0 the
+      // weapon controller suppresses fire/cycle input to keep the swap crisp.
+      weaponChangeLeft: 0,
 
       setPhase: (phase) => set({ phase }),
       openSettings: (from) => set({ phase: Phase.SETTINGS, settingsReturn: from }),
@@ -122,7 +125,9 @@ const useGameStore = create(
         })),
       equipWeapon: (id) =>
         set((s) => ({
-          equipped: id === 'fists' || s.weapons.some((w) => w.id === id) ? id : s.equipped,
+          equipped:
+            id === 'fists' || s.weapons.some((w) => w.id === id) ? id : s.equipped,
+          weaponChangeLeft: 0.12,
         })),
       cycleWeapon: (dir = 1) => {
         // Order = the store's own weapons ARRAY (fists first), NOT WEAPON_ORDER
@@ -130,8 +135,15 @@ const useGameStore = create(
         // Q/E cycles in the order the player arranged.
         const order = ['fists', ...get().weapons.map((w) => w.id)]
         const i = Math.max(0, order.indexOf(get().equipped))
-        set({ equipped: order[(i + (dir > 0 ? 1 : order.length - 1)) % order.length] ?? 'fists' })
+        const next =
+          order[(i + (dir > 0 ? 1 : order.length - 1)) % order.length] ?? 'fists'
+        // Short pause on weapon change so input doesn't race ahead of the
+        // animation / muzzle swap. weaponChangeLeft is drained by Player.jsx.
+        set({ equipped: next, weaponChangeLeft: 0.15 })
       },
+      // Remaining cooldown (seconds) while switching weapons. While > 0 the
+      // weapon controller suppresses fire/cycle input to keep the swap crisp.
+      weaponChangeLeft: 0,
       // Drag & drop reorder (SickInventory grid): move gun `fromId` onto `toId`.
       // Fists are implicit and never move.
       reorderWeapon: (fromId, toId) =>
@@ -184,6 +196,9 @@ const useGameStore = create(
       setHitAt: (t) => set({ hitAt: t }),
       addKill: () => set((s) => ({ killCount: (s.killCount || 0) + 1 })),
       setGameTime: (t) => set({ gameTime: t }),
+      // Decrements the weapon-change cooldown by dt; caller drives the rate.
+      drainWeaponChange: (dt) =>
+        set((s) => ({ weaponChangeLeft: Math.max(0, s.weaponChangeLeft - dt) })),
       setCamView: (i) =>
         set({ camView: Math.min(2, Math.max(0, Number.isFinite(i) ? i : 1)) }),
       cycleCamView: () => set({ camView: (get().camView + 1) % 3 }),
