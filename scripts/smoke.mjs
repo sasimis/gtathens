@@ -10,11 +10,12 @@ import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // Mirror every log line to a file as well: stdout through a pipe can be
 // buffered/dropped depending on how the script is launched, which made this
 // script look like it produced nothing at all.
-const REPORT = new URL('./smoke-report.txt', import.meta.url).pathname.replace(/^\//, '')
+const REPORT = fileURLToPath(new URL('./smoke-report.txt', import.meta.url))
 writeFileSync(REPORT, '')
 const mirror = (orig) => (...args) => {
   const line = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')
