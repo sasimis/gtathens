@@ -413,17 +413,25 @@ const CAR_COLORS = ['#c0392b', '#2980b9', '#7f8c8d', '#f39c12', '#27ae60']
 
 const AiCar = ({ route, seed, index = 0 }) => {
   const bodyRef = useRef(null)
-  const gRef = useRef(null)
   const st = useRef({ seg: 0, x: route[0][0], z: route[0][1], yaw: 0, speed: 0 })
   const s = st.current
-
-  if (!crash.aiLive[index] || !Number.isFinite(crash.aiLive[index].x)) {
-    crash.setAiLive(index, s.x, s.z)
-  }
 
   const AI_CAR_IDS = ['sedan', 'taxi', 'hatchback', 'sports', 'suv', 'pickup', 'van', 'police-sedan']
   const carId = AI_CAR_IDS[Math.abs(seed) % AI_CAR_IDS.length] || 'sedan'
   const half = HALF[carId] || HALF.sedan
+
+  useEffect(() => {
+    const rb = bodyRef.current
+    if (!rb) return
+    crash.aiBodies[index] = rb
+    return () => {
+      if (crash.aiBodies[index] === rb) crash.aiBodies[index] = null
+    }
+  }, [index, bodyRef])
+
+  if (!crash.aiLive[index] || !Number.isFinite(crash.aiLive[index].x)) {
+    crash.setAiLive(index, s.x, s.z)
+  }
 
   useFrame((state, dtRaw) => {
     const rb = bodyRef.current
@@ -493,34 +501,47 @@ const AiCar = ({ route, seed, index = 0 }) => {
       const live = crash.aiLive[index]
       if (live) live.speed = s.speed
     } catch { /* ignore */ }
-
-    if (gRef.current) {
-      gRef.current.position.set(s.x, tPos.y - half[1], s.z)
-      gRef.current.rotation.set(0, s.yaw, 0)
-    }
   })
 
+  const onHit = (p) => {
+    try {
+      const orb = p?.other?.rigidBody
+      const rb = bodyRef.current
+      if (!rb) return
+      const lv = rb.linvel ? rb.linvel() : { x: 0, z: 0 }
+      let speed = Math.hypot(lv.x, lv.z)
+      if (orb && typeof orb.linvel === 'function') {
+        const olv = orb.linvel()
+        speed = Math.max(speed, Math.hypot(lv.x - olv.x, lv.z - olv.z))
+      }
+      if (speed >= 1.5) {
+        audio.crash(speed / 25)
+        addAiDamage(index, Math.min(0.3, 0.04 + speed * 0.015))
+      }
+    } catch { /* ignore */ }
+  }
+
+  const dmg = aiDamage(index)
+
   return (
-    <group ref={gRef} position={[route[0][0], 0, route[0][1]]}>
-      <RigidBody
-        ref={bodyRef}
-        type="dynamic"
-        colliders={false}
-        position={[route[0][0], half[1], route[0][1]]}
-        collisionGroups={AI_CAR_GROUPS}
-        mass={1800}
-        canSleep={false}
-        ccdEnabled
-        linearDamping={0.5}
-        angularDamping={2.0}
-        onCollisionEnter={(p) => { try { audio.crash(0.3) } catch { /* ignore */ } }}
-      >
-        <CuboidCollider args={[half[0], half[1], half[2]]} friction={0.9} restitution={0.05} />
-      </RigidBody>
-      <group position={[0, 0, 0]}>
-        <CarModel id={carId} />
+    <RigidBody
+      ref={bodyRef}
+      type="dynamic"
+      colliders={false}
+      position={[route[0][0], half[1], route[0][1]]}
+      collisionGroups={AI_CAR_GROUPS}
+      mass={1800}
+      canSleep={false}
+      ccdEnabled
+      linearDamping={0.5}
+      angularDamping={2.0}
+      onCollisionEnter={onHit}
+    >
+      <CuboidCollider args={[half[0], half[1], half[2]]} friction={0.9} restitution={0.05} />
+      <group position={[0, -half[1], 0]}>
+        <CarModel id={carId} damage={dmg} />
       </group>
-    </group>
+    </RigidBody>
   )
 }
 
