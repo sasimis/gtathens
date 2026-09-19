@@ -45,6 +45,17 @@ const getPlayerPosAndYaw = () => {
     if (cam && Number.isFinite(cam.yaw)) {
       yaw = cam.yaw
     }
+    // Second opinion: pick the orientation the player actually faces, not the
+    // compass-facing convention a harness may install on window.__gtathensCam.
+    // The in-game player trace is written every physics frame and is the same
+    // source the follow camera is synced to, so it is the most reliable "forward"
+    // source for the minimap when both are available.
+    try {
+      const pl = window.__gtathensPlayer
+      if (pl && Number.isFinite(pl.x) && Number.isFinite(pl.z) && Number.isFinite(pl.camYaw)) {
+        yaw = pl.camYaw
+      }
+    } catch { /* ignore */ }
   } catch { /* fallback */ }
   return { px, pz, yaw }
 }
@@ -97,12 +108,26 @@ const Minimap = () => {
       const sinY = Math.sin(yaw)
 
       // Transform world coordinate (x, z) to canvas (canvasX, canvasY)
+      // World: north = -Z, east = +X. Camera yaw=0 faces -Z (north).
+      // Minimap convention: UP edge = BACK of the screen = -camera-forward.
+      // So when you push forward (W), the minimap shows the terrain moving UNDER you
+      // toward the bottom edge (canvas +Y), i.e. the map you moved INTO appears at top.
+      // = standard top-down minimap: moving forward pushes everything toward -canvasY.
+      // Convert: subtract yaw (invert) vs the camera-forward convention.
       const worldToCanvas = (x, z) => {
         const dx = x - px
         const dz = z - pz
-        const rx = dx * cosY + dz * sinY
-        const ry = -dx * sinY + dz * cosY
-        return [cX + rx / RADAR_SCALE, cY - ry / RADAR_SCALE]
+        // TOP edge = camera-forward (where you're looking), BOTTOM = camera-back.
+        // LEFT = camera-left, RIGHT = camera-right (screen-handed, matches controller aim).
+        // camera-forward direction in world: yaw=0 -> (x=0, z=-1).
+        // For a world offset (dx, dz): forward amt = dz*cosY - dx*sinY, right amt = dx*cosY + dz*sinY.
+        const fwd = dz * cosY - dx * sinY   // camera-forward amount (world + toward top)
+        const rhs = dx * cosY + dz * sinY   // camera-right amount (world + toward right)
+        // canvasUp = -fwd (world forward -> top of screen -> -canvasY)
+        // canvasRight = rhs (world right -> right of screen -> +canvasX)
+        const canvasX = cX + rhs
+        const canvasY = cY - fwd
+        return [canvasX, canvasY]
       }
 
       // Draw road segments
@@ -210,16 +235,17 @@ const Minimap = () => {
 
       const R = MAP_RADIUS - 10
       for (const pt of compassPoints) {
-        const rx = pt.dx * cosY + pt.dz * sinY
-        const ry = -pt.dx * sinY + pt.dz * cosY
-        const len = Math.hypot(rx, ry) || 1
-        const mx = cX + (rx / len) * R
-        const my = cY - (ry / len) * R
+        // Same convention as worldToCanvas: top = camera-forward, right = camera-right.
+        const fwd = pt.dz * cosY - pt.dx * sinY
+        const rhs = pt.dx * cosY + pt.dz * sinY
+        const len = Math.hypot(fwd, rhs) || 1
+        const mx = cX + (rhs / len) * R
+        const my = cY - (fwd / len) * R
         ctx.fillStyle = pt.color
         ctx.fillText(pt.label, mx, my)
       }
 
-      // Player Blip (center arrow pointing UP)
+      // Player Blip (center arrow pointing UP = minimap north = camera-back)
       ctx.fillStyle = '#f5b800'
       ctx.strokeStyle = '#151a22'
       ctx.lineWidth = 1.5
@@ -231,6 +257,19 @@ const Minimap = () => {
       ctx.closePath()
       ctx.fill()
       ctx.stroke()
+
+      // Player heading tick: short triangle at top edge pointing along camera-back
+      // (so the arrow + tick together read as "this way is forward / up the map").
+      ctx.save()
+      ctx.translate(cX, cY)
+      ctx.beginPath()
+      ctx.moveTo(0, -MAP_RADIUS + 12)       // tip near top edge
+      ctx.lineTo(-4, -MAP_RADIUS + 4)       // left base
+      ctx.lineTo(4, -MAP_RADIUS + 4)        // right base
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(245, 184, 0, 0.85)'
+      ctx.fill()
+      ctx.restore()
 
       animId = requestAnimationFrame(render)
     }
