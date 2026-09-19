@@ -186,15 +186,20 @@ const Protagonist = forwardRef(({ action = 'idle', skin = null, animSpeed = 1 },
   }, [model])
 
   useEffect(() => {
+    if (!scene) return
     const tex = skinTex
-    if (!tex || !scene) return
     scene.traverse((o) => {
       if (!o.isMesh) return
       const mats = Array.isArray(o.material) ? o.material : [o.material]
       for (const m of mats) {
         if (!m || !m.isMaterial) continue
-        m.map = tex
-        if (m.color && typeof m.color.setRGB === 'function') m.color.setRGB(1, 1, 1)
+        if (tex) {
+          m.map = tex
+          if (m.color && typeof m.color.setRGB === 'function') m.color.setRGB(1, 1, 1)
+        } else {
+          // Fallback skin tone to avoid raw white untextured models
+          if (m.color && typeof m.color.setHex === 'function') m.color.setHex(0x3a405a)
+        }
         if (typeof m.needsUpdate !== 'undefined') m.needsUpdate = true
       }
     })

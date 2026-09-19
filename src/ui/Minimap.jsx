@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import useGameStore, { Phase } from '../store/useGameStore'
-import { crash, AI_CAR_BODIES } from '../components/Car'
+import { crash, AI_CAR_BODIES } from '../components/car-modules/crashManager'
 import { NPC_RECORDS } from '../components/Npcs'
 
 const MAP_RADIUS = 90
@@ -243,7 +243,7 @@ const Minimap = () => {
       const relYaw = entityYaw - camYaw
       ctx.save()
       ctx.translate(cX, cY)
-      ctx.rotate(-relYaw)
+      ctx.rotate(relYaw)
 
       ctx.fillStyle = '#f5b800'
       ctx.strokeStyle = '#151a22'

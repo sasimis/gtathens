@@ -2,6 +2,7 @@
 // MODULE record (NPC_RECORDS) - WeaponController hits set dead, render does
 // fall + drops via spawnDrop(). Traffic loops the road graph.
 import React, { useEffect, useRef, useState } from 'react'
+import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { RigidBody, CapsuleCollider, CuboidCollider } from '@react-three/rapier'
 import {
@@ -38,10 +39,10 @@ import {
 import { audio } from '../lib/audio'
 import Protagonist, { CHARACTERS } from './Protagonist'
 
-export const PED_COUNT = 10
-export const PED_RADIUS = 200
-export const AI_CAR_COUNT = 5
-export const AI_CAR_RADIUS = 280
+export const PED_COUNT = 30
+export const PED_RADIUS = 220
+export const AI_CAR_COUNT = 12
+export const AI_CAR_RADIUS = 300
 export const NPC_KILL_TOAST = 'Ped down - cash dropped'
 export const NPC_RECORDS = []
 export const AI_CAR_STATE = []
@@ -302,24 +303,68 @@ const Ped = ({ index, x, z, dir }) => {
     if (!rb || !rec) return
     const dt = Math.min(dtRaw, 0.05)
     const gs = useGameStore.getState()
+
+    // Handle dead state (fall flat on asphalt)
     if (rec.dead) {
-      try {
-        const t = rb.translation()
-        setKb(rb, t.x, Math.max(0, t.y - dt * 1.6), t.z)
-      } catch (e) { /* noop */ }
+      if (gRef.current) {
+        // Smoothly lay flat on ground
+        s.fallPitch = THREE.MathUtils.lerp(s.fallPitch || 0, Math.PI / 2, Math.min(1, dt * 10))
+        gRef.current.rotation.set(s.fallPitch, s.yaw, 0)
+        gRef.current.position.set(s.px, 0.22, s.pz)
+      }
       if (!s.deadNotified) {
         s.deadNotified = true
         try {
-          const t = rb.translation()
-          spawnDrop('money', t.x, t.z, 8 + Math.floor(Math.random() * 30))
-          spawnDrop('ammo', t.x + 0.5, t.z + 0.4, 12 + Math.floor(Math.random() * 24))
+          const t = rb ? rb.translation() : { x: s.px, z: s.pz }
+          spawnDrop('money', t.x, t.z, 10 + Math.floor(Math.random() * 35))
+          spawnDrop('ammo', t.x + 0.5, t.z + 0.4, 15 + Math.floor(Math.random() * 25))
         } catch (e) { /* noop */ }
         if (gs.pushToast) gs.pushToast(NPC_KILL_TOAST, 'info')
+        if (gs.addKill) gs.addKill()
         setAction('idle')
       }
       return
     }
+
     if (gs.phase !== Phase.PLAYING) return
+
+    // Check collision / hit by cars (player driven or AI traffic)
+    try {
+      // Check player driven car
+      const drivingIdx = gs.driving
+      if (drivingIdx !== null && drivingIdx !== undefined) {
+        const carRb = crash.bodies[drivingIdx]
+        if (carRb && typeof carRb.translation === 'function') {
+          const ct = carRb.translation()
+          const cv = carRb.linvel ? carRb.linvel() : { x: 0, z: 0 }
+          const cSpeed = Math.hypot(cv.x, cv.z)
+          const dist = Math.hypot(ct.x - s.px, ct.z - s.pz)
+          if (cSpeed > 1.8 && dist < 2.2) {
+            rec.dead = true
+            try { audio.crash(0.5) } catch { /* noop */ }
+          }
+        }
+      }
+
+      // Check AI cars
+      if (!rec.dead) {
+        for (let k = 0; k < AI_CAR_BODIES.length; k += 1) {
+          const aiRb = AI_CAR_BODIES[k]
+          if (!aiRb || typeof aiRb.translation !== 'function') continue
+          const ct = aiRb.translation()
+          const cv = aiRb.linvel ? aiRb.linvel() : { x: 0, z: 0 }
+          const cSpeed = Math.hypot(cv.x, cv.z)
+          const dist = Math.hypot(ct.x - s.px, ct.z - s.pz)
+          if (cSpeed > 2.0 && dist < 2.0) {
+            rec.dead = true
+            try { audio.crash(0.5) } catch { /* noop */ }
+            break
+          }
+        }
+      }
+    } catch { /* ignore */ }
+
+    if (rec.dead) return
     s.wob += dt
     const wob = Math.sin(s.wob * 0.9) * 0.35
     // --- navmesh-guided wander (CityNavMesh; blind fallback when unready) ---
@@ -356,20 +401,24 @@ const Ped = ({ index, x, z, dir }) => {
       }
       if (s.navPath && s.wob - (s.navAt || 0) > 12) s.navPath = null // stale route
     }
-    if (heading === undefined) heading = s.yaw + wob
-    s.yaw = heading
-    let nx = s.px + Math.sin(heading) * PED_SPEED * dt
-    let nz = s.pz + Math.cos(heading) * PED_SPEED * dt
+    if (heading === undefined) heading = s.yaw + wob * 0.2
+
+    // Smooth heading rotation with lerp
+    let diff = heading - s.yaw
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff))
+    s.yaw += diff * Math.min(1, dt * 6.0)
+
+    let nx = s.px + Math.sin(s.yaw) * PED_SPEED * dt
+    let nz = s.pz + Math.cos(s.yaw) * PED_SPEED * dt
     try {
       const t = rb.translation()
       const pushed = Math.hypot(t.x - s.px, t.z - s.pz)
       if (pushed > 0.08 && pushed < 6) {
         nx = t.x + Math.sin(s.yaw) * PED_SPEED * dt
         nz = t.z + Math.cos(s.yaw) * PED_SPEED * dt
-        if (Math.abs(pushed - PED_SPEED * dt) > 0.02) s.yaw += dt * 1.0
       }
     } catch (e) { /* noop */ }
-    if (!s.navPath && Math.random() < dt * 0.03) s.yaw += (Math.random() - 0.5) * 1.2
+    if (!s.navPath && Math.random() < dt * 0.03) s.yaw += (Math.random() - 0.5) * 0.8
     s.px = nx
     s.pz = nz
     try {
@@ -380,9 +429,6 @@ const Ped = ({ index, x, z, dir }) => {
     if (action !== 'run') setAction('run')
     if (gRef.current) {
       gRef.current.position.set(nx, 0, nz)
-      // Model faces +Z already (same convention as the player: yaw =
-      // atan2(vx, vz)). No extra PI — the old `+ Math.PI` turned every ped
-      // around so they moonwalked backwards along their walk direction.
       gRef.current.rotation.set(0, s.yaw, 0)
     }
   })
