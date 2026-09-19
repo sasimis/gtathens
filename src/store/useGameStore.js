@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { CHARACTERS } from '../components/Protagonist'
 import { WEAPON_ORDER, WEAPONS } from '../lib/weapons'
+import { RADIO_STATIONS, radioAudio } from '../lib/radio'
 
 export const Phase = {
   MAIN_MENU: 'MAIN_MENU',
@@ -84,17 +85,51 @@ const useGameStore = create(
       startGame: () => set({ phase: Phase.PLAYING }),
       pauseGame: () => set({ phase: Phase.PAUSED }),
       resumeGame: () => set({ phase: Phase.PLAYING }),
-      toMainMenu: () =>
-        set({ phase: Phase.MAIN_MENU, settingsReturn: Phase.MAIN_MENU }),
+      toMainMenu: () => {
+        radioAudio.stop()
+        set({ phase: Phase.MAIN_MENU, settingsReturn: Phase.MAIN_MENU, radioOpen: false, radioStation: 0 })
+      },
       updateSettings: (patch) => set({ settings: { ...get().settings, ...patch } }),
       resetSettings: () => set({ settings: { ...DEFAULT_SETTINGS } }),
       setSpawn: (spawn) => set({ spawn: spawn ?? [0, 0] }),
       setCharacter: (i) => set({ character: i }),
       cycleCharacter: () => set({ character: (get().character + 1) % CHARACTERS.length }),
       setDriving: (i) => set({ driving: i ?? null }),
-      clearDriving: () => set({ driving: null }),
+      clearDriving: () => {
+        radioAudio.stop()
+        set({ driving: null, radioOpen: false, radioStation: 0 })
+      },
       setDrivingAi: (i) => set({ drivingAi: i ?? null }),
-      clearDrivingAi: () => set({ drivingAi: null }),
+      clearDrivingAi: () => {
+        radioAudio.stop()
+        set({ drivingAi: null, radioOpen: false, radioStation: 0 })
+      },
+      setRadioStation: (index) => {
+        const idx = Math.max(0, Math.min(RADIO_STATIONS.length - 1, Number(index) || 0))
+        set({ radioStation: idx })
+        radioAudio.playStation(idx)
+        if (get().driving !== null || get().drivingAi !== null) {
+          set({ radioToast: { station: RADIO_STATIONS[idx], id: Date.now() } })
+        }
+      },
+      toggleRadioMenu: () => {
+        const isDriving = get().driving !== null || get().drivingAi !== null
+        if (!isDriving) {
+          if (get().radioOpen) set({ radioOpen: false })
+          return
+        }
+        set((s) => ({ radioOpen: !s.radioOpen }))
+      },
+      openRadioMenu: () => {
+        if (get().driving !== null || get().drivingAi !== null) {
+          set({ radioOpen: true })
+        }
+      },
+      closeRadioMenu: () => set({ radioOpen: false }),
+      stopRadio: () => {
+        radioAudio.stop()
+        set({ radioStation: 0, radioOpen: false })
+      },
       setNearCar: (i) => set({ nearCar: i ?? -1 }),
       setNearAiCar: (i) => set({ nearAiCar: i ?? -1 }),
       setRespawn: (p) => set({ respawn: p }),
@@ -178,6 +213,7 @@ const useGameStore = create(
       setSfxVolume: (v) => {
         const vol = Math.max(0, Math.min(1, Number(v) || 0))
         set({ settings: { ...get().settings, sfxVolume: vol } })
+        radioAudio.setVolume(vol)
         import('../lib/audio').then(({ audio }) => audio.setMasterVolume(vol)).catch(() => {})
       },
       toggleInventory: () => set((s) => ({ inventoryOpen: !s.inventoryOpen })),
