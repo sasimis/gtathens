@@ -4,21 +4,22 @@
 // Fire model (the reason this file exists):
 //   1. The shot ray ALWAYS starts at the CAMERA, along the reticle direction
 //      (mouse NDC, or screen centre when no mouse has moved yet). The player's
-//      own body is skipped in that cast: a third-person character is drawn
+//      own body is excluded from that cast: a third-person character is drawn
 //      offset from the reticle, so a ray from the gun would miss whatever the
 //      crosshair covers.
 //   2. That camera ray yields the AIM POINT — what the crosshair is over.
 //   3. The damage ray runs from the MUZZLE to the aim point: the tracer still
-//      leaves the barrel, a wall you are hugging still stops the bullet, and the
-//      point under the crosshair is what gets hit. The gun mesh is then turned
-//      to LOOK AT the aim point (GunMount IK) so the barrel agrees with the shot.
+//      leaves the barrel, a wall you are hugging still stops the bullet, and
+//      the point under the crosshair is what gets hit. The gun mesh is then
+//      turned to LOOK AT the aim point (GunMount IK), so the barrel agrees with
+//      what is about to be shot.
 //   4. Peds resolve through analytic capsule + head hitboxes (lib/hitbox.js)
-//      instead of a proximity sphere, with a headshot multiplier.
+//      rather than a proximity sphere, with a headshot multiplier.
 //
 // Every timed value (rate of fire, reload, recoil recovery, bloom) uses the REAL
 // frame delta. The old code stepped a fixed 0.016 s per frame, so the rate of
-// fire followed the framerate — an SMG fired ~2.4x too slow at 144 Hz and ~2x
-// too fast in a throttled tab. That alone reads as "the guns feel bad".
+// fire depended on the framerate — an SMG fired ~2.4x too slow at 144 Hz and
+// ~2x too fast in a throttled tab. That alone reads as "guns feel bad".
 import React, { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
@@ -40,7 +41,7 @@ import {
   ASSIST_RANGE,
   TOUCH_HITBOX_SCALE,
 } from '../lib/combat'
-import { pedRayHit, makeHit } from '../lib/hitbox'
+import { pedRayHit, makeHit, PED_CENTER_Y } from '../lib/hitbox'
 import { BTN, getGamepad, padValue, padEdge } from '../lib/gamepad'
 import { GunMount } from './Weapon'
 import {
@@ -69,17 +70,18 @@ const UP = new THREE.Vector3(0, 1, 0)
 // Result of a world raycast (module scratch — reused by every cast).
 const worldHit = { hit: false, toi: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, handle: -1 }
 const pedOut = makeHit()
-// Aim-assist input triple (a plain {x,y,z} the magnet can rewrite in place).
+// Aim-assist input triple (a plain {x,y,z} so the magnet can rewrite it without
+// touching a THREE.Vector3's dirty flags).
 const aimAssistDir = { x: 0, y: 0, z: 0 }
-// Camera->aim-point distance for the current frame + whether the magnet fired.
+// Distance from the camera to the current aim point + whether the magnet fired.
 let aimReach = 0
 let aimAssisted = false
-// Context handed to the per-bullet resolver (mutated, never re-created).
+// Context object handed to the per-bullet resolver (mutated, never re-created).
 const fireCtx = { world: null, rapier: null, bodyRef: null }
 
 const AIM_MAX = 100 // the reticle ray reaches 100 m (the brief's number)
 const PED_GRACE = 0.35 // metres past a wall hit that a ped may still be struck
-const FLINCH_TIME = 0.22 // hit-reaction stagger length (Npcs.jsx consumes it)
+const FLINCH_TIME = 0.22
 
 const fireState = {
   wantFire: false,
@@ -92,16 +94,7 @@ const fireState = {
   reloadEdge: false,
 }
 
-let reloadEl = null
-const setReloadUI = (pct) => {
-  if (!reloadEl || !reloadEl.isConnected) reloadEl = document.getElementById('gtathens-reload')
-  if (!reloadEl) return
-  const on = pct > 0
-  if (reloadEl.hidden === on) reloadEl.hidden = !on
-  if (!on) return
-  const fill = reloadEl.firstElementChild
-  if (fill) fill.style.width = `${Math.round(Math.min(1, pct) * 100)}%`
-}
+
 // --- QA telemetry (scripts/smoke.mjs reads this; written once per SHOT) -----
 export const shotTrace = {
   shots: 0, impacts: 0, hits: 0, x: 0, y: 0, z: 0, toi: -1, muzzle: 0,
@@ -129,7 +122,7 @@ const selfColliderHandle = (bodyRef) => {
  * World raycast into the shared `worldHit` scratch. Two passes at most: the
  * camera sits behind the player, so the first hit can be the shooter's own
  * capsule — the ray is then resumed 0.35 m past it. That self-skip is why this
- * needs none of rapier's version-fragile exclude-collider query arguments.
+ * does not need rapier's version-fragile exclude-collider query arguments.
  * Returns true when `worldHit.hit` was filled.
  */
 const castWorld = (world, rapier, ox, oy, oz, dx, dy, dz, maxToi, skipHandle) => {
@@ -181,63 +174,12 @@ const castWorld = (world, rapier, ox, oy, oz, dx, dy, dz, maxToi, skipHandle) =>
   }
   return false
 }
+
 // Impact material: bullets into a car body spark, into the ground puff dust,
 // everything else chips concrete (the brief's "different VFX per surface").
 const METAL_R2 = 2.4 * 2.4
 const nearCarXZ = (x, z) => {
   for (let i = 0; i < CAR_LIVE_POS.length; i += 1) {
-    const p = CAR_LIVE_POS[i]
-    if (!p) continue
-    const dx = p.x - x
-    const dz = p.z - z
-    if (dx * dx + dz * dz < METAL_R2) return true
-  }
-  const ai = crash && crash.aiLive
-  if (ai) {
-    for (let i = 0; i < ai.length; i += 1) {
-      const p = ai[i]
-      if (!p || !Number.isFinite(p.x)) continue
-      const dx = p.x - x
-      const dz = p.z - z
-      if (dx * dx + dz * dz < METAL_R2) return true
-    }
-  }
-  return false
-}
-
-const surfaceKind = (x, y, z) => {
-  if (y < 0.35) return IMPACT_DUST
-  if (nearCarXZ(x, z)) return IMPACT_METAL
-  return IMPACT_CONCRETE
-}
-
-/**
- * Damage + reaction on a ped. Kinematic peds cannot take a real impulse, so the
- * "hit reaction" is a stagger Npcs.jsx consumes (flinchT/flinchX/flinchZ/
- * flinchSpeed) plus the weapon's headshot multiplier.
- */
-const damagePed = (st, nr, kind, def, dirX, dirZ) => {
-  const mul = kind === 2 ? (def.headshotMul || 2.5) : 1
-  const dmg = Math.round((def.damage || 15) * mul)
-  const now = performance.now()
-  nr.hp = Math.max(0, nr.hp - dmg)
-  nr.hurtAt = now
-  nr.hurtKind = kind
-  nr.flinchT = FLINCH_TIME
-  nr.flinchX = -dirX
-  nr.flinchZ = -dirZ
-  nr.flinchSpeed = def.knockback || 1.2
-  noteHit(kind, now)
-  st.setHitAt(now, kind === 2)
-  if (nr.hp <= 0) {
-    nr.dead = true
-    nr.deadAt = now
-    nr.killer = 'player'
-    st.addKill()
-    noteKill(kind)
-  }
-}
-
 // Aim assist for sticks/touch: nudge the reticle toward the ped nearest to it
 // within ASSIST_CONE_DEG, measured from the unassisted reticle. Rewrites `dir`
 // ({x,y,z}) in place and returns true when it moved the shot.
@@ -283,18 +225,21 @@ const applyAimAssist = (dir, ox, oy, oz, maxRange) => {
   dir.z /= l
   return true
 }
+
 /** One hitscan bullet: muzzle -> (dx,dy,dz), resolves peds + world + FX. */
-const fireBullet = (ctx, st, def, ox, oy, oz, dx, dy, dz, fxOnce, damageOnce) => {
+const fireBullet = (
+  ctx, st, def, ox, oy, oz, dx, dy, dz,
+  fxOnce, hitOnce, headOnce,
+) => {
   const { world, rapier } = ctx
   const range = def.range || 90
-  // Wall along the bullet's path (self-skip in case a bad mount starts the ray
-  // inside the shooter's own capsule — normally the muzzle is already outside).
-  const hitSomething = castWorld(
-    world, rapier, ox, oy, oz, dx, dy, dz, range, selfColliderHandle(ctx.bodyRef),
-  )
+  // Wall along the bullet's path (self-skip in case the muzzle starts inside
+  // the shooter's own capsule — it never should, but a bad mount would).
+  const skip = selfColliderHandle(ctx.bodyRef)
+  const hitSomething = castWorld(world, rapier, ox, oy, oz, dx, dy, dz, range, skip)
   const wallT = hitSomething ? worldHit.toi : range
 
-  // Ped hitboxes: the nearest ped this bullet's line actually pierces.
+  // Ped hitboxes: the nearest ped the bullet's line actually pierces.
   let pedIdx = -1
   let pedKind = 0
   let pedT = Infinity
@@ -306,8 +251,8 @@ const fireBullet = (ctx, st, def, ox, oy, oz, dx, dy, dz, fxOnce, damageOnce) =>
     try { t = nr.rb.translation() } catch (e) { continue }
     if (!t) continue
     if (!pedRayHit(ox, oy, oz, dx, dy, dz, range, t.x, t.y, t.z, scale, pedOut)) continue
-    // A body hugging cover may still be struck just past the wall, but a
-    // building never lets a bullet through: only PED_GRACE metres are allowed.
+    // A ped inside the walls: allow a small grace past a wall impact so a body
+    // hugging cover is not "bulletproof", but never shoot through a building.
     if (pedOut.t > wallT + PED_GRACE) continue
     if (pedOut.t < pedT) {
       pedT = pedOut.t
@@ -321,15 +266,16 @@ const fireBullet = (ctx, st, def, ox, oy, oz, dx, dy, dz, fxOnce, damageOnce) =>
   const ex = ox + dx * endT
   const ey = oy + dy * endT
   const ez = oz + dz * endT
-  const len = Math.hypot(ex - ox, ey - oy, ez - oz)
-  const endX = len > 0.01 ? ex : ox + dx * 0.6
-  const endY = len > 0.01 ? ey : oy + dy * 0.6
-  const endZ = len > 0.01 ? ez : oz + dz * 0.6
+  const dist = Math.hypot(ex - ox, ey - oy, ez - oz)
+  const endX = dist > 0.01 ? ex : ox + dx * 0.6
+  const endY = dist > 0.01 ? ey : oy + dy * 0.6
+  const endZ = dist > 0.01 ? ez : oz + dz * 0.6
 
-  // One tracer per trigger pull (not per pellet) so a shotgun does not paint a
+  // One tracer per trigger pull (not per pellet) so a shotgun does not draw a
   // white cone across the street.
-  if (!fxOnce.tracer) fireTracer(ox, oy, oz, endX, endY, endZ)
-
+  if (!lastFx.tracer) {
+    fireTracer(ox, oy, oz, endX, endY, endZ)
+  }
   if (pedIdx >= 0 && !wallFirst) {
     impactFlash(pedOut.x, pedOut.y, pedOut.z, IMPACT_FLESH)
     shotTrace.x = pedOut.x
@@ -337,10 +283,11 @@ const fireBullet = (ctx, st, def, ox, oy, oz, dx, dy, dz, fxOnce, damageOnce) =>
     shotTrace.z = pedOut.z
     shotTrace.toi = pedT
     shotTrace.kind = IMPACT_FLESH
+    const nr = NPC_RECORDS[pedIdx]
     if (pedKind === 2) shotTrace.head = 1
-    damageOnce.n = true
-    shotTrace.hits += 1
-    damagePed(st, NPC_RECORDS[pedIdx], pedKind, def, dx, dz)
+    damagePed(st, nr, pedKind, def, dx, dz)
+    hitOne.n = true
+    if (pedKind === 2) damageOne.n = true
   } else if (hitSomething) {
     const kind = surfaceKind(worldHit.x, worldHit.y, worldHit.z)
     impactFlash(worldHit.x, worldHit.y, worldHit.z, kind, worldHit.nx, worldHit.ny, worldHit.nz)
@@ -349,21 +296,22 @@ const fireBullet = (ctx, st, def, ox, oy, oz, dx, dy, dz, fxOnce, damageOnce) =>
     shotTrace.z = worldHit.z
     shotTrace.toi = wallT
     shotTrace.kind = kind
-    shotTrace.impacts += 1
+    hitOne.n = true
   } else {
     // Clean miss: keep the previous impact point so the QA trail still shows
     // what the last round actually struck (toi/kind say "miss").
     shotTrace.toi = -1
     shotTrace.kind = -1
   }
-}
 // Fists keep their own tuning (a punch hits harder than the legacy "fists"
 // entry in the weapon table but uses the same schema).
 const FISTS_DEF = { ...WEAPONS.fists, damage: 20, cooldown: 0.38, knockback: 1.6 }
 
 // Per-trigger-pull scratch: a shotgun fires 8 pellets but we only want one
-// tracer and one hitmarker tick.
+// tracer, one hitmark and one knockback tick.
 const fxOnce = { tracer: false }
+const hitOnce = { n: false }
+const headOnce = { n: false }
 const damageOnce = { n: false }
 
 const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
@@ -372,14 +320,13 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
   const [, getKeys] = useKeyboardControls()
   const prevKeys = useRef({})
 
-  // ONE primitive per selector: zustand v5 has no shallow equality and an
-  // object-returning selector re-renders forever (black screen — see AGENTS.md).
+  // ONE primitive per selector: zustand v5 has no shallow equality, and an
+  // object-returning selector re-renders forever (black screen, see AGENTS.md).
   const phase = useGameStore((s) => s.phase)
   const equipped = useGameStore((s) => s.equipped)
   const inventoryOpen = useGameStore((s) => s.inventoryOpen)
   const driving = useGameStore((s) => s.driving)
   const cycleWeapon = useGameStore((s) => s.cycleWeapon)
-  const def = equipped && equipped !== 'fists' ? WEAPONS[equipped] : null
 
   // A freshly drawn gun must not inherit the previous gun's bloom / recoil /
   // aim point — resetting on every equip change also covers ground pickups.
@@ -412,8 +359,8 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
     }
   }, [phase, inventoryOpen, driving])
 
-  // QA seam for scripts/smoke.mjs: muzzle chain + gun-IK state. A stable
-  // read-only object, like the rest of the debug hooks.
+  // QA seam for scripts/smoke.mjs: muzzle chain + gun-IK state. Same stable
+  // object pattern as the rest of the debug hooks — read-only, no per-frame work.
   useEffect(() => {
     window.__gtathensMuzzle = () => {
       const ok = gunFX.getMuzzle ? gunFX.getMuzzle(muzzleVec) : false
@@ -431,18 +378,39 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
     }
     return () => { delete window.__gtathensMuzzle }
   }, [])
+}
+    const p = CAR_LIVE_POS[i]
+    if (!p) continue
+    const dx = p.x - x
+    const dz = p.z - z
+    if (dx * dx + dz * dz < METAL_R2) return true
+  }
+  const ai = crash && crash.aiLive
+  if (ai) {
+    for (let i = 0; i < ai.length; i += 1) {
+      const p = ai[i]
+      if (!p || !Number.isFinite(p.x)) continue
+      const dx = p.x - x
+      const dz = p.z - z
+      if (dx * dx + dz * dz < METAL_R2) return true
+    }
+  }
+  return false
+}
 
-  useFrame((state, delta) => {
+const surfaceKind = (x, y, z) => {
+  if (y < 0.35) return IMPACT_DUST
+useFrame((state, delta) => {
     // Real time since the last frame (clamped): every timer below is scaled by
-    // it, so rate of fire / reload / recoil recovery no longer follow the
+    // this, so rate of fire / reload / recoil recovery no longer follow the
     // framerate.
     const dt = Math.min(Math.max(delta, 0), 0.05)
     decayCombat(dt)
 
     const st = useGameStore.getState()
-    // Hit-stop (the brief's "freeze 30 ms on a headshot kill"): bailing out
-    // before reload / fire / aim freezes the gun pose exactly as it was, and
-    // FollowCamera holds the camera with it.
+    // Hit-stop: the brief's "freeze 30 ms on a headshot kill". Bailing out
+    // before the reload / fire / aim update freezes the gun pose exactly as it
+    // was, and the camera (FollowCamera reads combat.hitstopT) holds with it.
     if (combat.hitstopT > 0) {
       setReloadUI(combat.reload01)
       return
@@ -467,9 +435,7 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
     const isFists = eq === 'fists'
     const wdef = isFists ? FISTS_DEF : WEAPONS[eq]
     if (!wdef) return
-    const wrec = isFists
-      ? { id: 'fists', mag: 99, reserve: 99 }
-      : st.weapons.find((x) => x.id === eq) || null
+    const wrec = isFists ? { id: 'fists', mag: 99, reserve: 99 } : st.weapons.find((x) => x.id === eq) || null
 
     // --- keyboard ---
     const keys = getKeys()
@@ -497,18 +463,18 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       else if (rt <= 0.15 && !fireState.kbWasDown && !fireState.mouseDown && !combat.touchFire) {
         fireState.wantFire = false
       }
-      if (padEdge(gp, BTN.LB)) fireState.reloadEdge = true
     } else if (!combat.isTouch) {
       combat.assist = false
     }
+    if (gp && padEdge(gp, BTN.LB)) fireState.reloadEdge = true
 
-    // --- touch trigger (the big on-screen button in ui/Crosshair.jsx) ---
+    // --- touch trigger (the big on-screen button, ui/Crosshair.jsx) ---
     if (combat.touchFire) {
       combat.assist = true
       fireState.wantFire = true
     }
 
-    // --- reload (per-weapon time; combat.reloading cancels sprint in Player) ---
+    // --- reload ---
     if (fireState.reloading) {
       fireState.reloadT += dt
       combat.reloading = true
@@ -526,16 +492,18 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
     if (!isFists && fireState.reloadEdge && wrec && wrec.mag < wdef.mag && wrec.reserve > 0) {
       fireState.reloading = true
       fireState.reloadT = 0
+      // Per-weapon reload time (the old build used one shared 1.6 s).
       fireState.reloadDur = Number.isFinite(wdef.reloadTime) ? wdef.reloadTime : 1.6
       combat.reloading = true
       audio.play('reload')
     }
     fireState.reloadEdge = false
-// --- reticle aim (every frame, guns only) ------------------------------
+
+    // --- reticle aim (every frame, guns only) -------------------------------
     // The ray starts at the CAMERA through the crosshair NDC. mouseAim is
     // written by ui/Crosshair.jsx; with no mouse yet (or headless) the NDC is
     // (0,0) = screen centre, i.e. plain camera-forward. The shooter's own
-    // capsule is skipped, so you can never shoot your own back off.
+    // capsule is skipped, so standing in your own line of fire is impossible.
     if (!isFists && gunFX.held) {
       aimDir.set(mouseAim.nx, mouseAim.ny, 0.5).unproject(camera).sub(camera.position)
       if (aimDir.lengthSq() < 1e-8) aimDir.set(0, 0, -1).applyQuaternion(camera.quaternion)
@@ -548,29 +516,25 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       aimAssistDir.x = aimDir.x
       aimAssistDir.y = aimDir.y
       aimAssistDir.z = aimDir.z
-      aimAssisted = applyAimAssist(aimAssistDir, camX, camY, camZ, ASSIST_RANGE)
+      const assisted = applyAimAssist(aimAssistDir, camX, camY, camZ, ASSIST_RANGE)
       aimDir.set(aimAssistDir.x, aimAssistDir.y, aimAssistDir.z)
       // Reticle ray: origin = camera, distance capped by the weapon's range.
       const reticleMax = Math.min(AIM_MAX, wdef.range)
       let aimToi = reticleMax
-      if (castWorld(
-        world, rapier, camX, camY, camZ, aimDir.x, aimDir.y, aimDir.z,
-        reticleMax, selfColliderHandle(bodyRef),
-      )) {
+      if (castWorld(world, rapier, camX, camY, camZ, aimDir.x, aimDir.y, aimDir.z, reticleMax, selfColliderHandle(bodyRef))) {
         aimToi = Math.min(worldHit.toi, reticleMax)
       }
       aimPoint.set(camX + aimDir.x * aimToi, camY + aimDir.y * aimToi, camZ + aimDir.z * aimToi)
       aimReach = aimToi
-      // Published for the gun IK (<GunMount> turns the barrel at this point),
-      // the crosshair and the QA seam. Numbers only, every frame.
+      aimAssisted = assisted
+      // Publish for the gun IK (<GunMount> turns the barrel at this point) and
+      // for the QA seam. Per frame, numbers only.
       combat.aimX = aimPoint.x
       combat.aimY = aimPoint.y
       combat.aimZ = aimPoint.z
       combat.aimOk = true
     } else {
       combat.aimOk = false
-      aimReach = 0
-      aimAssisted = false
     }
 
     // --- fire / attack gating ---
@@ -592,8 +556,6 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       return
     }
 
-    // Rate of fire comes from the weapon's RPM (fallback: the cooldown field),
-    // stepped by the REAL delta instead of a fixed 0.016 s per frame.
     const cooldown = Number.isFinite(wdef.rpm) && wdef.rpm > 0 ? 60 / wdef.rpm : wdef.cooldown
     fireState.fireCooldown -= dt
     if (fireState.fireCooldown > 0) {
@@ -601,9 +563,9 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       return
     }
     fireState.fireCooldown = cooldown
-    if (!isFists) st.spendMag()
-    const now = performance.now()
-// --- Fist attack (melee, no ray) ------------------------------------
+const now = performance.now()
+
+    // --- Fist attack (melee, no ray) -------------------------------------
     if (isFists) {
       window.__gtathensPunchT = 0.35 // tweens the arm swing in Protagonist
       audio.play('melee')
@@ -647,22 +609,19 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
             const dz = bt.z - pt.z
             const l = Math.hypot(dx, dz) || 1
             audio.play('hit')
-            shotTrace.hits += 1
-            shotTrace.impacts += 1
             damagePed(st, nr, 1, wdef, dx / l, dz / l)
           }
         }
-        shotTrace.px = pt.x
-        shotTrace.py = pt.y
-        shotTrace.pz = pt.z
       }
+      shotTrace.px = pt ? pt.x : shotTrace.px
+      shotTrace.pz = pt ? pt.z : shotTrace.pz
       if (modelRef && modelRef.current) modelRef.current.rotation.x = 0
       return
     }
 
     // --- Gun: fire `pellets` hitscan bullets from the muzzle ---------------
-    // noteShot owns the "feel" bookkeeping: bloom growth (which the reticle
-    // draws), the recoil-pattern camera kick and the shake.
+    // NoteShot does the "feel" bookkeeping in one place: bloom growth (which the
+    // crosshair draws), the recoil-pattern camera kick and the shake.
     noteShot(wdef, now)
     combat.spread = coneFor(wdef)
     const cone = combat.spread
@@ -672,14 +631,18 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
     gunFX.kick = Number.isFinite(wdef.recoilKick) ? wdef.recoilKick : 0.04
 
     // Barrel origin (falls back to the camera if the mount is not ready yet).
-    const muzzleOk = !!(gunFX.getMuzzle && gunFX.getMuzzle(muzzleVec))
+    let muzzleOk = false
+    if (gunFX.getMuzzle) {
+      const ok = gunFX.getMuzzle(muzzleVec)
+      if (ok) muzzleOk = true
+    }
     const ox = muzzleOk ? muzzleVec.x : camera.position.x
     const oy = muzzleOk ? muzzleVec.y : camera.position.y
     const oz = muzzleOk ? muzzleVec.z : camera.position.z
 
     // Perpendicular basis around the reticle: pellets scatter on a disc around
     // the aim point, scaled by the distance so the pattern widens with range
-    // (what a cone does, without a per-pellet direction jitter).
+    // (exactly what a cone does, without a direction jitter per pellet).
     rightVec.crossVectors(aimDir, UP)
     if (rightVec.lengthSq() < 1e-6) rightVec.set(1, 0, 0)
     rightVec.normalize()
@@ -688,8 +651,11 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
     const pellets = Math.max(1, wdef.pellets || 1)
 
     fxOnce.tracer = false
+    hitOnce.n = false
+    headOnce.n = false
     damageOnce.n = false
     shotTrace.head = 0
+    shotTrace.impactsBase = shotTrace.impacts
     fireCtx.world = world
     fireCtx.rapier = rapier
     fireCtx.bodyRef = bodyRef
@@ -709,14 +675,25 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       shotDir.set(tx - ox, ty - oy, tz - oz)
       const l = shotDir.length() || 1
       shotDir.multiplyScalar(1 / l)
-      fireBullet(fireCtx, st, wdef, ox, oy, oz, shotDir.x, shotDir.y, shotDir.z, fxOnce, damageOnce)
+      fireBullet(
+        fireCtx, st, wdef,
+        ox, oy, oz, shotDir.x, shotDir.y, shotDir.z,
+        fxOnce, hitOnce, headOnce,
+      )
       fxOnce.tracer = true // only the first pellet draws a tracer
     }
 
     muzzleFlash(ox, oy, oz)
     audio.play('shoot')
-    // The brief's hitmarker tick: an audible confirm on flesh.
-    if (damageOnce.n) audio.play('hit')
+    if (damageOnce.n) {
+      // The brief's hitmarker tick: a real audible confirm on flesh.
+      audio.play('hit')
+    }
+    if (hitOnce.n) {
+      // One impact decal/spark budget per trigger pull (fireBullet already
+      // spawned the pellet's own flash; this keeps the counters honest).
+      shotTrace.impacts = shotTrace.impactsBase + (hitOnce.n ? 1 : 0)
+    }
 
     // Telemetry (field names the smoke test depends on — keep them stable).
     shotTrace.shots += 1
@@ -749,3 +726,45 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
 }
 
 export default WeaponController
+    if (!isFists) st.spendMag()
+    const now = performance.now()
+  if (nearCarXZ(x, z)) return IMPACT_METAL
+  return IMPACT_CONCRETE
+}
+
+/**
+ * Damage + reaction on a ped. Kinematic peds cannot take a real impulse, so the
+ * "hit reaction" is a stagger that Npcs.jsx consumes (flinchT/flinchX/flinchZ/
+ * flinchSpeed) plus the headshot multiplier from the weapon definition.
+ */
+const damagePed = (st, nr, kind, def, dirX, dirZ) => {
+  const mul = kind === 2 ? (def.headshotMul || 2.5) : 1
+  const dmg = Math.round((def.damage || 15) * mul)
+  const now = performance.now()
+  nr.hp = Math.max(0, nr.hp - dmg)
+  nr.hurtAt = now
+  nr.hurtKind = kind
+  nr.flinchT = FLINCH_TIME
+  nr.flinchX = -dirX
+  nr.flinchZ = -dirZ
+  nr.flinchSpeed = def.knockback || 1.2
+  noteHit(kind, now)
+  st.setHitAt(now, kind === 2)
+  if (nr.hp <= 0) {
+    nr.dead = true
+    nr.deadAt = now
+    nr.killer = 'player'
+    st.addKill()
+    noteKill(kind)
+  }
+}
+let reloadEl = null
+const setReloadUI = (pct) => {
+  if (!reloadEl || !reloadEl.isConnected) reloadEl = document.getElementById('gtathens-reload')
+  if (!reloadEl) return
+  const on = pct > 0
+  if (reloadEl.hidden === on) reloadEl.hidden = !on
+  if (!on) return
+  const fill = reloadEl.firstElementChild
+  if (fill) fill.style.width = `${Math.round(Math.min(1, pct) * 100)}%`
+}

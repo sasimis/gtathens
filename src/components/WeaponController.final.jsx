@@ -97,11 +97,6 @@ const setReloadUI = (pct) => {
   if (!reloadEl || !reloadEl.isConnected) reloadEl = document.getElementById('gtathens-reload')
   if (!reloadEl) return
   const on = pct > 0
-  if (reloadEl.hidden === on) reloadEl.hidden = !on
-  if (!on) return
-  const fill = reloadEl.firstElementChild
-  if (fill) fill.style.width = `${Math.round(Math.min(1, pct) * 100)}%`
-}
 // --- QA telemetry (scripts/smoke.mjs reads this; written once per SHOT) -----
 export const shotTrace = {
   shots: 0, impacts: 0, hits: 0, x: 0, y: 0, z: 0, toi: -1, muzzle: 0,
@@ -179,8 +174,6 @@ const castWorld = (world, rapier, ox, oy, oz, dx, dy, dz, maxToi, skipHandle) =>
     worldHit.hit = true
     return true
   }
-  return false
-}
 // Impact material: bullets into a car body spark, into the ground puff dust,
 // everything else chips concrete (the brief's "different VFX per surface").
 const METAL_R2 = 2.4 * 2.4
@@ -280,9 +273,6 @@ const applyAimAssist = (dir, ox, oy, oz, maxRange) => {
   const l = Math.hypot(dir.x, dir.y, dir.z) || 1
   dir.x /= l
   dir.y /= l
-  dir.z /= l
-  return true
-}
 /** One hitscan bullet: muzzle -> (dx,dy,dz), resolves peds + world + FX. */
 const fireBullet = (ctx, st, def, ox, oy, oz, dx, dy, dz, fxOnce, damageOnce) => {
   const { world, rapier } = ctx
@@ -353,10 +343,6 @@ const fireBullet = (ctx, st, def, ox, oy, oz, dx, dy, dz, fxOnce, damageOnce) =>
   } else {
     // Clean miss: keep the previous impact point so the QA trail still shows
     // what the last round actually struck (toi/kind say "miss").
-    shotTrace.toi = -1
-    shotTrace.kind = -1
-  }
-}
 // Fists keep their own tuning (a punch hits harder than the legacy "fists"
 // entry in the weapon table but uses the same schema).
 const FISTS_DEF = { ...WEAPONS.fists, damage: 20, cooldown: 0.38, knockback: 1.6 }
@@ -425,14 +411,7 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
         held: gunFX.held,
         aimOk: combat.aimOk,
         aim: [+combat.aimX.toFixed(2), +combat.aimY.toFixed(2), +combat.aimZ.toFixed(2)],
-        bloom01: +combat.bloom01.toFixed(3),
-        recoil: +combat.recoil.toFixed(2),
-      }
-    }
-    return () => { delete window.__gtathensMuzzle }
-  }, [])
-
-  useFrame((state, delta) => {
+useFrame((state, delta) => {
     // Real time since the last frame (clamped): every timer below is scaled by
     // it, so rate of fire / reload / recoil recovery no longer follow the
     // framerate.
@@ -522,16 +501,7 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       return
     }
     combat.reloading = false
-    combat.reload01 = 0
-    if (!isFists && fireState.reloadEdge && wrec && wrec.mag < wdef.mag && wrec.reserve > 0) {
-      fireState.reloading = true
-      fireState.reloadT = 0
-      fireState.reloadDur = Number.isFinite(wdef.reloadTime) ? wdef.reloadTime : 1.6
-      combat.reloading = true
-      audio.play('reload')
-    }
-    fireState.reloadEdge = false
-// --- reticle aim (every frame, guns only) ------------------------------
+// --- reticle aim (every frame, guns only) --------------------------------
     // The ray starts at the CAMERA through the crosshair NDC. mouseAim is
     // written by ui/Crosshair.jsx; with no mouse yet (or headless) the NDC is
     // (0,0) = screen centre, i.e. plain camera-forward. The shooter's own
@@ -562,7 +532,7 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       aimPoint.set(camX + aimDir.x * aimToi, camY + aimDir.y * aimToi, camZ + aimDir.z * aimToi)
       aimReach = aimToi
       // Published for the gun IK (<GunMount> turns the barrel at this point),
-      // the crosshair and the QA seam. Numbers only, every frame.
+      // the camera (shake/kick) and the QA seam. Numbers only, every frame.
       combat.aimX = aimPoint.x
       combat.aimY = aimPoint.y
       combat.aimZ = aimPoint.z
@@ -592,8 +562,6 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       return
     }
 
-    // Rate of fire comes from the weapon's RPM (fallback: the cooldown field),
-    // stepped by the REAL delta instead of a fixed 0.016 s per frame.
     const cooldown = Number.isFinite(wdef.rpm) && wdef.rpm > 0 ? 60 / wdef.rpm : wdef.cooldown
     fireState.fireCooldown -= dt
     if (fireState.fireCooldown > 0) {
@@ -601,8 +569,6 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       return
     }
     fireState.fireCooldown = cooldown
-    if (!isFists) st.spendMag()
-    const now = performance.now()
 // --- Fist attack (melee, no ray) ------------------------------------
     if (isFists) {
       window.__gtathensPunchT = 0.35 // tweens the arm swing in Protagonist
@@ -749,3 +715,34 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
 }
 
 export default WeaponController
+    if (!isFists) st.spendMag()
+    const now = performance.now()
+    combat.reload01 = 0
+    if (!isFists && fireState.reloadEdge && wrec && wrec.mag < wdef.mag && wrec.reserve > 0) {
+      fireState.reloading = true
+      fireState.reloadT = 0
+      fireState.reloadDur = Number.isFinite(wdef.reloadTime) ? wdef.reloadTime : 1.6
+      combat.reloading = true
+      audio.play('reload')
+    }
+    fireState.reloadEdge = false
+        bloom01: +combat.bloom01.toFixed(3),
+        recoil: +combat.recoil.toFixed(2),
+      }
+    }
+    return () => { delete window.__gtathensMuzzle }
+  }, [])
+    shotTrace.toi = -1
+    shotTrace.kind = -1
+  }
+}
+  dir.z /= l
+  return true
+}
+  return false
+}
+  if (reloadEl.hidden === on) reloadEl.hidden = !on
+  if (!on) return
+  const fill = reloadEl.firstElementChild
+  if (fill) fill.style.width = `${Math.round(Math.min(1, pct) * 100)}%`
+}

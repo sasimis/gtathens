@@ -106,7 +106,7 @@ const RadioMenu = () => {
           <div className="radio-header">
             <div className="radio-title-wrap">
               <span className="radio-title">
-                <span className="radio-title-accent">RADIO</span> ΣΤΑΘΜΕΣ
+                <span className="radio-title-accent">RADIO</span>
               </span>
               <span className="radio-hint">Πάτησε [M] ή ESC για κλείσιμο</span>
             </div>

@@ -4,6 +4,29 @@
 // Pure data + pure three.js geometry — safe to import from the store.
 import * as THREE from 'three'
 
+// Weapon schema (one JSON-ish object per gun — nothing is hardcoded in the
+// firing code). Everything in meters / seconds / radians.
+//
+//   rpm           rounds per minute — the fire loop derives cooldown = 60/rpm so
+//                 the weapon ignores framerate (the old fixed 0.016 s step made
+//                 an SMG fire at ~62 rpm on a 60 fps desktop and ~40 rpm in a
+//                 throttled tab).
+//   reloadTime    seconds to reload (was a shared 1.6 for every gun).
+//   range         max hitscan distance (m).
+//   damage        per bullet, before the headshot multiplier.
+//   headshotMul   damage multiplier for a head hit (2.5 = the brief's number).
+//   spread        cone half-angle of the FIRST (settled) shot, radians.
+//   spreadGain    radians of cone added per shot while the trigger is held.
+//   spreadMax     cone ceiling; crosshair[data-bloom] normalizes against it.
+//   recoil        radians of vertical muzzle climb per shot (pattern scales it).
+//   recoilPattern per-shot {x, y} kick multipliers — the classic spray shape.
+//   shake         0..1 camera-shake amplitude per shot.
+//   recoilKick    metres the gun mesh pushes back (Jolt), for the gun IK.
+//   pellets       bullets per trigger pull (shotgun).
+//   knockback     metres/second of impulse applied to a ped that is hit.
+//   auto          hold-to-fire.
+//   melee         fists: no ray, proximity swing.
+//   pickupAmmo    rounds granted by a ground pickup.
 export const WEAPONS = {
   fists: {
     id: 'fists',
@@ -14,16 +37,35 @@ export const WEAPONS = {
     cooldown: 0.45,
     mag: 0,
     spread: 0,
+    spreadGain: 0,
+    spreadMax: 0,
+    recoil: 0,
+    headshotMul: 1,
+    shake: 0.06,
+    knockback: 1.4,
   },
   pistol: {
     id: 'pistol',
     name: 'Pistol',
     melee: false,
     damage: 34,
+    headshotMul: 2.5,
     range: 70,
-    cooldown: 0.26,
+    rpm: 420,
+    cooldown: 60 / 420, // kept for the store/UI which read cooldown directly
     mag: 12,
-    spread: 0.014, // radians of cone jitter
+    reloadTime: 1.35,
+    spread: 0.012, // first shot is nearly true
+    spreadGain: 0.012,
+    spreadMax: 0.07,
+    recoil: 0.016,
+    recoilPattern: [
+      { x: 0, y: 1 }, { x: 0.25, y: 1.15 }, { x: -0.3, y: 1.1 },
+      { x: 0.4, y: 0.95 }, { x: -0.45, y: 0.9 }, { x: 0.5, y: 0.8 },
+    ],
+    shake: 0.1,
+    recoilKick: 0.035,
+    knockback: 1.2,
     auto: false,
     pickupAmmo: 24,
   },
@@ -32,10 +74,24 @@ export const WEAPONS = {
     name: 'SMG',
     melee: false,
     damage: 15,
+    headshotMul: 2.5,
     range: 55,
-    cooldown: 0.085,
+    rpm: 750,
+    cooldown: 60 / 750,
     mag: 30,
-    spread: 0.035,
+    reloadTime: 1.8,
+    spread: 0.02,
+    spreadGain: 0.016, // blooms fast and stays wide — must be tapped
+    spreadMax: 0.085,
+    recoil: 0.009,
+    recoilPattern: [
+      { x: 0, y: 1 }, { x: 0.15, y: 1.2 }, { x: -0.2, y: 1.3 },
+      { x: 0.3, y: 1.2 }, { x: -0.35, y: 1.15 }, { x: 0.45, y: 1.1 },
+      { x: -0.5, y: 1.05 }, { x: 0.55, y: 1.0 }, { x: -0.6, y: 0.95 },
+    ],
+    shake: 0.12,
+    recoilKick: 0.03,
+    knockback: 0.8,
     auto: true,
     pickupAmmo: 60,
   },
@@ -44,10 +100,23 @@ export const WEAPONS = {
     name: 'Rifle',
     melee: false,
     damage: 30,
+    headshotMul: 2.5,
     range: 95,
-    cooldown: 0.16,
+    rpm: 420,
+    cooldown: 60 / 420,
     mag: 20,
-    spread: 0.018,
+    reloadTime: 2.0,
+    spread: 0.014,
+    spreadGain: 0.01,
+    spreadMax: 0.06,
+    recoil: 0.019,
+    recoilPattern: [
+      { x: 0, y: 1 }, { x: -0.2, y: 1.2 }, { x: 0.3, y: 1.2 },
+      { x: -0.4, y: 1.1 }, { x: 0.45, y: 1.05 }, { x: -0.5, y: 1.0 },
+    ],
+    shake: 0.16,
+    recoilKick: 0.05,
+    knockback: 1.6,
     auto: false,
     pickupAmmo: 60,
   },
@@ -55,11 +124,22 @@ export const WEAPONS = {
     id: 'shotgun',
     name: 'Shotgun',
     melee: false,
-    damage: 38,
+    damage: 13, // per pellet — 8 pellets land ~104 up close
+    headshotMul: 1.6, // pellets make headshots cheap already
+    pellets: 8,
     range: 38,
-    cooldown: 0.42,
+    rpm: 75,
+    cooldown: 60 / 75,
     mag: 8,
-    spread: 0.06,
+    reloadTime: 2.4,
+    spread: 0.055,
+    spreadGain: 0,
+    spreadMax: 0.055,
+    recoil: 0.05, // big kick — the brief's 0.4 shake tier
+    recoilPattern: [{ x: 0, y: 1 }, { x: 0.1, y: 1.1 }, { x: -0.1, y: 1.05 }],
+    shake: 0.4,
+    recoilKick: 0.09,
+    knockback: 3.2,
     auto: false,
     pickupAmmo: 24,
   },
@@ -68,10 +148,20 @@ export const WEAPONS = {
     name: 'Revolver',
     melee: false,
     damage: 46,
+    headshotMul: 2.5,
     range: 60,
-    cooldown: 0.34,
+    rpm: 150,
+    cooldown: 60 / 150,
     mag: 6,
-    spread: 0.022,
+    reloadTime: 2.1,
+    spread: 0.016,
+    spreadGain: 0.02,
+    spreadMax: 0.09,
+    recoil: 0.042,
+    recoilPattern: [{ x: 0, y: 1 }, { x: 0.2, y: 1.15 }, { x: -0.25, y: 1.1 }],
+    shake: 0.3,
+    recoilKick: 0.075,
+    knockback: 2.4,
     auto: false,
     pickupAmmo: 18,
   },
@@ -80,10 +170,20 @@ export const WEAPONS = {
     name: 'Marksman',
     melee: false,
     damage: 62,
+    headshotMul: 3, // the precision reward
     range: 140,
-    cooldown: 0.72,
+    rpm: 55,
+    cooldown: 60 / 55,
     mag: 5,
-    spread: 0.006,
+    reloadTime: 2.6,
+    spread: 0.004, // laser when standing still
+    spreadGain: 0.02,
+    spreadMax: 0.07,
+    recoil: 0.036,
+    recoilPattern: [{ x: 0, y: 1 }, { x: 0.15, y: 1.1 }, { x: -0.15, y: 1.05 }],
+    shake: 0.26,
+    recoilKick: 0.07,
+    knockback: 3,
     auto: false,
     pickupAmmo: 20,
   },
@@ -106,9 +206,17 @@ export const NPC_CASH_MIN = 12
 export const NPC_CASH_MAX = 55
 
 // Shared fire FX state (mutated in place by the shooting controller, consumed
-// by the gun mount + bullet-fx renderer). Zero allocation per frame.
+// by the gun mount + the bullet-fx renderer). Zero allocation per frame.
 export const gunFX = {
-  recoil: 0, // 0..1, decays in the gun mount's useFrame
+  // 0..1 gun/arm kick. Mirrored from lib/combat.js#combat.recoil so the model
+  // layer (Protagonist's additive arm pose) can read it without importing the
+  // combat module — the mount still owns the mesh kick below.
+  recoil: 0,
+  // Metres the gun mesh is pushed back along its own -Z per kick, copied from
+  // the equipped weapon's `recoilKick` by <GunMount>.
+  kick: 0.04,
+  // True while the player is holding a gun (mount publishes it).
+  held: false,
   // Returns the current muzzle world position into `out` (or null before the
   // gun exists). Installed by <GunMount> while a gun is mounted.
   getMuzzle: null,
