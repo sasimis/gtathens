@@ -850,20 +850,6 @@ const AiCar = ({ route, seed, index = 0 }) => {
     }
 
     // Update progress along route (only when close to route)
-    if (distToTarget < AI_RECOVER_DIST) {
-      const align = dirX * Math.sin(targetYaw) + dirZ * Math.cos(targetYaw)
-      if (align > 0.5) {
-        s.current.progress += s.current.speed * dt * 0.9
-        if (s.current.progress > s.current.totalLen) {
-          s.current.progress -= s.current.totalLen
-        }
-      }
-    } else {
-      s.current.progress += s.current.speed * dt * 0.3
-      if (s.current.progress > s.current.totalLen) {
-        s.current.progress -= s.current.totalLen
-      }
-    }
 
     // Update live state for other systems
     setAiLive(index, currentX, currentZ)
