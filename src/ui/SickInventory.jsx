@@ -7,56 +7,55 @@ import WeaponIcon from './WeaponIcon'
 import { audio } from '../lib/audio'
 import { BTN, getGamepad, padEdge } from '../lib/gamepad'
 
-// Fixed slots: EVERY weapon always renders in WEAPON_ORDER so slots never
-// move as you pick guns up (GTA V behaviour). Unowned guns show dimmed +
-// locked and cannot be equipped.
+// Only what the player actually owns renders (fists + owned guns, in
+// WEAPON_ORDER so slots never move as guns are picked up). No locked
+// placeholders — a slot appears the moment its pickup is collected.
+// Slots spread around the ring; 2 slots sit opposite each other.
 const WHEEL_R = 165
 
-const WheelSlot = ({ id, i, n, active, owned, ammo, onHover, onPick }) => {
-  const ang = (i / n) * Math.PI * 2 - Math.PI / 2
+const WheelSlot = ({ id, i, n, active, ammo, onHover, onPick }) => {
+  // n === 2 → opposite sides; otherwise start at top and spread evenly.
+  const ang = n === 2 ? i * Math.PI - Math.PI / 2 : (i / n) * Math.PI * 2 - Math.PI / 2
   const x = Math.cos(ang) * WHEEL_R
   const y = Math.sin(ang) * WHEEL_R
   const def = WEAPONS[id]
   return (
     <motion.button
-      className={`wheel-slot${active ? ' on' : ''}${owned ? '' : ' locked'}`}
+      className={`wheel-slot${active ? ' on' : ''}`}
       style={{ left: `calc(50% + ${x}px)`, top: `calc(50% + ${y}px)` }}
       initial={{ opacity: 0, scale: 0.4 }}
       animate={{ opacity: 1, scale: active ? 1.18 : 1 }}
       exit={{ opacity: 0, scale: 0.4, transition: { duration: 0.12 } }}
       transition={{ type: 'spring', stiffness: 500, damping: 26, delay: i * 0.02 }}
-      onMouseEnter={() => { if (owned) onHover(id) }}
-      onClick={() => { if (owned) onPick(id) }}
+      onMouseEnter={() => onHover(id)}
+      onClick={() => onPick(id)}
     >
       <span className="wheel-glyph"><WeaponIcon id={id} size={32} /></span>
       <span className="wheel-name">{def ? def.name : id}</span>
       {id === 'fists'
         ? <span className="wheel-ammo">—</span>
-        : <span className="wheel-ammo">{owned && ammo ? `${ammo.mag}/${ammo.reserve}` : 'locked'}</span>}
+        : <span className="wheel-ammo">{ammo ? `${ammo.mag}/${ammo.reserve}` : '—'}</span>}
     </motion.button>
   )
 }
 
-const GridSlot = ({ id, ammo, equipped, owned, onEquip }) => {
-  // Locked (unowned) guns are NOT draggable/droppable: they use fixed ids so
-  // dnd-kit never sees them, and clicks are ignored.
-  const dragId = owned ? id : `locked-${id}`
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: dragId, disabled: !owned })
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: dragId, disabled: !owned })
+const GridSlot = ({ id, ammo, equipped, onEquip }) => {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id })
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id })
   const def = WEAPONS[id]
   return (
     <motion.div
       ref={(n) => { setNodeRef(n); setDropRef(n) }}
       {...listeners}
       {...attributes}
-      className={`inv-cell${equipped ? ' on' : ''}${isOver ? ' drop' : ''}${owned ? '' : ' locked'}`}
+      className={`inv-cell${equipped ? ' on' : ''}${isOver ? ' drop' : ''}`}
       style={{ opacity: isDragging ? 0.35 : 1 }}
-      whileHover={owned ? { scale: 1.08 } : undefined}
-      onClick={() => { if (owned) onEquip(id) }}
+      whileHover={{ scale: 1.08 }}
+      onClick={() => onEquip(id)}
     >
       <span className="inv-glyph"><WeaponIcon id={id} size={34} /></span>
       <span className="inv-name">{def ? def.name : id}</span>
-      <span className="inv-ammo">{id === 'fists' ? '—' : owned && ammo ? `${ammo.mag} / ${ammo.reserve}` : 'locked'}</span>
+      <span className="inv-ammo">{id === 'fists' ? '—' : ammo ? `${ammo.mag} / ${ammo.reserve}` : '—'}</span>
     </motion.div>
   )
 }
@@ -183,7 +182,7 @@ const SickInventory = () => {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [wheel, weapons, hover, equipped, ownedIds])
+  }, [wheel, hover, equipped, ownedIds])
 
   useEffect(() => {
     if (phase !== Phase.PLAYING && (gridOpen || wheel)) {
@@ -193,9 +192,11 @@ const SickInventory = () => {
   }, [phase, gridOpen, wheel, close])
 
   if (phase !== Phase.PLAYING) return null
-  const slots = [...WEAPON_ORDER]
+  // Owned-only slots in canonical order: fists always, then every collected
+  // gun. Nothing renders before its pickup — a slot pops in on collect and
+  // never moves afterwards.
+  const slots = WEAPON_ORDER.filter((id) => id === 'fists' || ownedIds.has(id))
   const ammoOf = (id) => (id === 'fists' ? null : weapons.find((w) => w.id === id) || null)
-  const ownedOf = (id) => id === 'fists' || ownedIds.has(id)
 
   return (
     <AnimatePresence>
@@ -204,7 +205,7 @@ const SickInventory = () => {
           className="wheel-screen"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           transition={{ duration: 0.12 }}
-          onMouseUp={() => { tabDown.current = false; setWheel(false); if (hover && ownedOf(hover)) equip(hover) }}
+          onMouseUp={() => { tabDown.current = false; setWheel(false); if (hover) equip(hover) }}
         >
           <div className="wheel-ring" />
           <div className={`wheel-core${hover && hover !== equipped ? ' new' : ''}`}>
@@ -212,8 +213,7 @@ const SickInventory = () => {
           </div>
           {slots.map((id, i) => (
             <WheelSlot key={id} id={id} i={i} n={slots.length}
-              active={hover === id}
-              owned={ownedOf(id)}
+              active={hover === id || (slots.length === 1 && id === equipped)}
               ammo={ammoOf(id)}
               onHover={setHover}
               onPick={(pid) => { tabDown.current = false; setWheel(false); equip(pid) }}
@@ -234,16 +234,14 @@ const SickInventory = () => {
             <div className="sick-title">INVENTORY</div>
             <div className="sick-cash">${money}</div>
             <DndContext sensors={sensors} onDragEnd={({ active, over }) => {
-              // Locked slots use `locked-*` ids — ignore drops involving them.
-              if (!over || String(active.id).startsWith('locked-') || String(over.id).startsWith('locked-')) return
-              if (active.id !== over.id) {
+              if (over && active.id !== over.id) {
                 reorder(active.id, over.id)
                 audio.play('pickup', 1.4, 0.5)
               }
             }}>
               <div className="sick-grid">
                 {slots.map((id) => (
-                  <GridSlot key={id} id={id} ammo={ammoOf(id)} equipped={equipped === id} owned={ownedOf(id)} onEquip={equip} />
+                  <GridSlot key={id} id={id} ammo={ammoOf(id)} equipped={equipped === id} onEquip={equip} />
                 ))}
               </div>
             </DndContext>
