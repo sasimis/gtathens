@@ -1,14 +1,18 @@
 import React, { useEffect, useRef } from 'react'
+import * as THREE from 'three'
 import useGameStore, { Phase } from '../store/useGameStore'
-import { crash } from '../components/car-modules/crashManager'
+import { crash, AI_CAR_BODIES } from '../components/Car'
 import { NPC_RECORDS } from '../components/Npcs'
 
 const MAP_RADIUS = 90
 const RADAR_SCALE = 1.6 // meters per pixel
 const MAP_RANGE = MAP_RADIUS * RADAR_SCALE // max meters visible from center
 
+const q = new THREE.Quaternion()
+const fwd = new THREE.Vector3()
+
 const getPlayerPosAndYaw = () => {
-  let px = 0, pz = 0, yaw = 0
+  let px = 0, pz = 0, camYaw = 0, entityYaw = 0
   try {
     const st = useGameStore.getState()
     const driving = st.driving
@@ -23,6 +27,13 @@ const getPlayerPosAndYaw = () => {
           pz = s.z
         }
       }
+      const rb = AI_CAR_BODIES[drivingAi]
+      if (rb && typeof rb.rotation === 'function') {
+        const r = rb.rotation()
+        q.set(r.x, r.y, r.z, r.w)
+        fwd.set(0, 0, 1).applyQuaternion(q)
+        entityYaw = Math.atan2(fwd.x, fwd.z)
+      }
     } else if (driving !== null && driving !== undefined) {
       const g = window.__gtathensCars
       if (g && typeof g.pos === 'function') {
@@ -32,21 +43,30 @@ const getPlayerPosAndYaw = () => {
           pz = s.z
         }
       }
+      const rb = crash.bodies[driving]
+      if (rb && typeof rb.rotation === 'function') {
+        const r = rb.rotation()
+        q.set(r.x, r.y, r.z, r.w)
+        fwd.set(0, 0, 1).applyQuaternion(q)
+        entityYaw = Math.atan2(fwd.x, fwd.z)
+      }
     } else {
       const p = window.__gtathensPlayer
       if (p && Number.isFinite(p.x) && Number.isFinite(p.z)) {
         px = p.x
         pz = p.z
-        yaw = p.camYaw ?? 0
+        entityYaw = p.yaw ?? p.camYaw ?? 0
       }
     }
 
     const cam = window.__gtathensCam
     if (cam && Number.isFinite(cam.yaw)) {
-      yaw = cam.yaw
+      camYaw = cam.yaw
+    } else {
+      camYaw = entityYaw
     }
   } catch { /* fallback */ }
-  return { px, pz, yaw }
+  return { px, pz, camYaw, entityYaw }
 }
 
 const Minimap = () => {
@@ -64,7 +84,7 @@ const Minimap = () => {
     let animId = 0
 
     const render = () => {
-      const { px, pz, yaw } = getPlayerPosAndYaw()
+      const { px, pz, camYaw, entityYaw } = getPlayerPosAndYaw()
       const width = canvas.width
       const height = canvas.height
       const cX = width / 2
@@ -93,8 +113,8 @@ const Minimap = () => {
       ctx.arc(cX, cY, MAP_RADIUS * 0.75, 0, Math.PI * 2)
       ctx.stroke()
 
-      const cosY = Math.cos(yaw)
-      const sinY = Math.sin(yaw)
+      const cosY = Math.cos(camYaw)
+      const sinY = Math.sin(camYaw)
 
       // Transform world coordinate (x, z) to canvas (canvasX, canvasY)
       const worldToCanvas = (x, z) => {
@@ -219,18 +239,25 @@ const Minimap = () => {
         ctx.fillText(pt.label, mx, my)
       }
 
-      // Player Blip (center arrow pointing UP)
+      // Player Blip (center arrow rotated by entity angle relative to camera yaw)
+      const relYaw = entityYaw - camYaw
+      ctx.save()
+      ctx.translate(cX, cY)
+      ctx.rotate(-relYaw)
+
       ctx.fillStyle = '#f5b800'
       ctx.strokeStyle = '#151a22'
       ctx.lineWidth = 1.5
       ctx.beginPath()
-      ctx.moveTo(cX, cY - 8)
-      ctx.lineTo(cX + 6, cY + 6)
-      ctx.lineTo(cX, cY + 3)
-      ctx.lineTo(cX - 6, cY + 6)
+      ctx.moveTo(0, -9)
+      ctx.lineTo(6.5, 7)
+      ctx.lineTo(0, 3.5)
+      ctx.lineTo(-6.5, 7)
       ctx.closePath()
       ctx.fill()
       ctx.stroke()
+
+      ctx.restore()
 
       animId = requestAnimationFrame(render)
     }

@@ -394,6 +394,7 @@ const PlayerBody = ({ spawn }) => {
     playerTrace.y = bodyPos.y
     playerTrace.z = bodyPos.z
     playerTrace.camYaw = camYaw.current
+    playerTrace.yaw = yaw.current
     playerTrace.t = performance.now() | 0
   })
 
