@@ -1,8 +1,9 @@
 // Pedestrians + AI traffic. Peds are kinematic capsules; HP lives on the
 // MODULE record (NPC_RECORDS) - WeaponController hits set dead, render does
 // fall + drops via spawnDrop(). Traffic loops the road graph.
-import React, { useEffect, useRef, useState } from 'react'
+import React, { Suspense, useEffect, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
+import { Line } from '@react-three/drei'
 import { RigidBody, CapsuleCollider, CuboidCollider } from '@react-three/rapier'
 import {
   buildingPolygons,
@@ -17,7 +18,7 @@ import {
 } from '../lib/worldData'
 import useGameStore, { Phase } from '../store/useGameStore'
 import { NPC_HP } from '../lib/weapons'
-import { getRoadPathfinder } from '../lib/RoadPathfinder'
+import { getRoadPathfinder, sampleRoute, polylineLength } from '../lib/RoadPathfinder'
 import { navPath, navRandomPointAround } from '../lib/navmesh'
 import { navRuntime } from './CityNavMesh'
 import { spawnDrop } from './Pickups'
@@ -32,6 +33,7 @@ import {
   addAiDamage,
   getCarBody,
   isAiCarOccupied,
+  isOnAsphalt,
   setAiCarOccupied,
   setAiLive,
 } from './Car'
@@ -40,11 +42,13 @@ import Protagonist, { CHARACTERS } from './Protagonist'
 
 export const PED_COUNT = 10
 export const PED_RADIUS = 200
-export const AI_CAR_COUNT = 5
+export const AI_CAR_COUNT = 8
 export const AI_CAR_RADIUS = 280
 export const NPC_KILL_TOAST = 'Ped down - cash dropped'
 export const NPC_RECORDS = []
 export const AI_CAR_STATE = []
+// Module-level storage for AI routes (for debug visualization)
+export const AI_ROUTES = []
 for (let i = 0; i < PED_COUNT; i += 1) {
   NPC_RECORDS.push({ i, kind: 'ped', hp: NPC_HP, dead: false, deadAt: 0, killer: null, rb: null })
 }
@@ -98,7 +102,7 @@ export const npcsQA = {
 if (typeof window !== 'undefined') window.__gtathensNpcs = npcsQA
 
 const PED_SPEED = 1.5
-const AI_CRUISE = 8
+const AI_CRUISE = 10
 const GROUP_GROUND = 0x0001
 const GROUP_PLAYER = 0x0002
 const GROUP_CAR = 0x0004
@@ -187,7 +191,12 @@ const buildAiRoutes = (data, spawn, count) => {
       const r = pf.randomRoute(k * 977 + 13)
       if (r && r.points.length >= 3) routes.push(r.points)
     }
-    if (routes.length > 0) return routes
+    if (routes.length > 0) {
+      // Store routes for debug visualization
+      AI_ROUTES.length = 0
+      for (const r of routes) AI_ROUTES.push(r)
+      return routes
+    }
   }
   return buildAiRoutesLegacy(data, spawn, count)
 }
@@ -264,6 +273,166 @@ const buildAiRoutesLegacy = (data, spawn, count) => {
     routes.push(pts)
   }
   return routes
+}
+
+// AI traffic helper functions for path following and collision avoidance
+
+/**
+ * Finds the nearest point on a route polyline to a given position.
+ * Returns { point: [x,z], dist, t } where t is the arc-length parameter.
+ */
+const findNearestOnRoute = (route, x, z) => {
+  if (!route || route.length < 2) return null
+  const totalLen = polylineLength(route)
+  if (totalLen < 0.001) return null
+
+  let bestDist = Infinity
+  let bestT = 0
+  let bestPoint = route[0]
+
+  // Sample at intervals for efficiency
+  const steps = Math.min(route.length * 2, 40)
+  for (let i = 0; i <= steps; i += 1) {
+    const s = (i / steps) * totalLen
+    const out = { x: 0, z: 0, yaw: 0, done: false }
+    sampleRoute(route, s, out)
+    const dx = out.x - x
+    const dz = out.z - z
+    const d = dx * dx + dz * dz
+    if (d < bestDist) {
+      bestDist = d
+      bestT = s
+      bestPoint = [out.x, out.z]
+    }
+  }
+
+  return {
+    point: bestPoint,
+    dist: Math.sqrt(bestDist),
+    t: bestT,
+    totalLen,
+  }
+}
+
+/**
+ * Gets a look-ahead target point on the route for smoother steering.
+ * Instead of targeting the current position, we look ahead to anticipate turns.
+ */
+const getLookAheadTarget = (route, progress, lookAheadDist, totalLen) => {
+  const targetS = Math.min(progress + lookAheadDist, totalLen)
+  const out = { x: 0, z: 0, yaw: 0, done: false }
+  sampleRoute(route, targetS, out)
+  return {
+    x: out.x,
+    z: out.z,
+    yaw: out.yaw,
+    dist: Math.min(lookAheadDist, totalLen - progress),
+  }
+}
+
+/**
+ * Computes avoidance steering to avoid collision with other cars.
+ */
+const computeAvoidSteer = (x, z, yaw, speed, others, index, route) => {
+  let avoidX = 0
+  let avoidZ = 0
+  let imminentCollision = false
+
+  for (let k = 0; k < others.length; k += 1) {
+    if (k === index) continue
+    const o = others[k]
+    if (!o || !Number.isFinite(o.x) || !Number.isFinite(o.z)) continue
+
+    const odx = o.x - x
+    const odz = o.z - z
+    const od = Math.hypot(odx, odz)
+
+    // Check if other car is in front
+    const cosY = Math.cos(-yaw)
+    const sinY = Math.sin(-yaw)
+    const localX = odx * cosY - odz * sinY
+    const localZ = odx * sinY + odz * cosY
+
+    // Car in front and too close
+    if (localZ < AI_AVOID_DIST && localZ > -4 && Math.abs(localX) < 4) {
+      const urgency = Math.max(0, 1 - od / AI_AVOID_DIST)
+      const side = localX > 0 ? -1 : 1
+
+      // Check if we can steer that way
+      const testAngle = side * 0.5
+      const testX = x + Math.sin(yaw + testAngle) * 6
+      const testZ = z + Math.cos(yaw + testAngle) * 6
+
+      let canSteer = true
+      for (let j = 0; j < others.length; j += 1) {
+        if (j === index || j === k) continue
+        const oo = others[j]
+        if (!oo || !Number.isFinite(oo.x)) continue
+        if (Math.hypot(testX - oo.x, testZ - oo.z) < AI_AVOID_DIST * 0.6) {
+          canSteer = false
+          break
+        }
+      }
+
+      if (canSteer) {
+        avoidX += side * urgency * 0.35
+        avoidZ += urgency * 0.15
+        imminentCollision = true
+      } else {
+        // Can't steer, strong brake
+        avoidZ -= urgency * 0.3
+      }
+      break
+    }
+
+    // Check if other car is heading towards us (head-on or merging)
+    if (od < AI_AVOID_DIST * 2) {
+      const otherYaw = o.yaw || 0
+      const odx2 = x - o.x
+      const odz2 = z - o.z
+      const oLocalX = odx2 * Math.cos(-otherYaw) - odz2 * Math.sin(-otherYaw)
+      const oLocalZ = odx2 * Math.sin(-otherYaw) + odz2 * Math.cos(-otherYaw)
+
+      if (oLocalZ < 2 && Math.abs(oLocalX) < 3) {
+        // Other car is heading towards us
+        const relSpeed = Math.abs(speed + (o.speed || 0)) * 0.5
+        if (relSpeed > 1.5) {
+          // Determine which side has more room
+          const leftClear = !isDirectionBlocked(x, z, yaw, -1, others, index, AI_AVOID_DIST * 0.8)
+          const rightClear = !isDirectionBlocked(x, z, yaw, 1, others, index, AI_AVOID_DIST * 0.8)
+          
+          if (leftClear && !rightClear) {
+            avoidX -= urgency * 0.2
+          } else if (rightClear && !leftClear) {
+            avoidX += urgency * 0.2
+          } else if (!leftClear && !rightClear) {
+            // Both sides blocked, brake hard
+            avoidZ -= urgency * 0.4
+          }
+        }
+      }
+    }
+  }
+
+  return [avoidX, avoidZ, imminentCollision]
+}
+
+/**
+ * Checks if a direction is blocked by other cars.
+ */
+const isDirectionBlocked = (x, z, yaw, side, others, index, checkDist) => {
+  const testX = x + Math.sin(yaw + side * 0.4) * checkDist
+  const testZ = z + Math.cos(yaw + side * 0.4) * checkDist
+  
+  for (let j = 0; j < others.length; j += 1) {
+    if (j === index) continue
+    const o = others[j]
+    if (!o || !Number.isFinite(o.x)) continue
+    if (Math.hypot(testX - o.x, testZ - o.z) < 2.5) {
+      return true
+    }
+  }
+  return false
 }
 
 const setKb = (rb, x, y, z) => {
@@ -409,21 +578,51 @@ const Ped = ({ index, x, z, dir }) => {
   )
 }
 
-const CAR_COLORS = ['#c0392b', '#2980b9', '#7f8c8d', '#f39c12', '#27ae60']
+const CAR_COLORS = ['#c0392b', '#2980b9', '#7f8c8d', '#f39c12', '#27ae60', '#8e44ad', '#1abc9c', '#e67e22']
+
+// AI traffic configuration - tuning constants (AI_CRUISE is defined above)
+const AI_ACCEL_TAU = 2.5
+const AI_AVOID_DIST = 7
+const AI_RECOVER_DIST = 6
+const MAX_STEER_ANGLE = 0.15
+const AI_LOOK_AHEAD_DIST = 10
+
+// Road awareness: how far off road before we strongly correct
+const OFF_ROAD_PENALTY_DIST = 4
+const OFF_ROAD_SPEED_PENALTY = 0.4  // Speed multiplier when off road
 
 const AiCar = ({ route, seed, index = 0 }) => {
   const bodyRef = useRef(null)
   const gRef = useRef(null)
-  const st = useRef({ seg: 0, x: route[0][0], z: route[0][1], yaw: 0, speed: 0 })
-  const s = st.current
+  // State: progress along route as arc-length, position, yaw, speed
+  const s = useRef({
+    progress: 0,
+    x: route[0][0],
+    z: route[0][1],
+    yaw: 0,
+    speed: 0,
+    totalLen: polylineLength(route),
+    wobble: Math.random() * 100,
+  })
 
+  // Initialize AI live state
   if (!crash.aiLive[index] || !Number.isFinite(crash.aiLive[index].x)) {
-    crash.setAiLive(index, s.x, s.z)
+    crash.setAiLive(index, s.current.x, s.current.z)
   }
 
-  const AI_CAR_IDS = ['sedan', 'taxi', 'hatchback', 'sports', 'suv', 'pickup', 'van', 'police-sedan']
+  // Full car roster for AI traffic
+  const AI_CAR_IDS = [
+    'sedan', 'sedan-blue', 'sedan-darkred',
+    'sports', 'sports-yellow', 'sports-stripe',
+    'muscle', 'muscle-black', 'muscle-green', 'muscle-teal',
+    'suv', 'suv-black', 'suv-green', 'suv-teal',
+    'suv-yellow', 'suv-blue', 'suv-orange', 'suv-red',
+  ]
   const carId = AI_CAR_IDS[Math.abs(seed) % AI_CAR_IDS.length] || 'sedan'
   const half = HALF[carId] || HALF.sedan
+  // Faster cruise speeds with variety (base 10 m/s ≈ 36 km/h)
+  const cruiseMult = 0.9 + (Math.abs(seed) % 100) / 250  // 0.9 to 1.3
+  const carCruise = AI_CRUISE * cruiseMult
 
   useFrame((state, dtRaw) => {
     const rb = bodyRef.current
@@ -435,68 +634,252 @@ const AiCar = ({ route, seed, index = 0 }) => {
       return
     }
 
+    // Get current position from physics
     const tPos = rb.translation()
-    s.x = tPos.x
-    s.z = tPos.z
+    const currentX = tPos.x
+    const currentZ = tPos.z
 
-    const b = route[s.seg + 1] || route[0]
-    let dx = b[0] - s.x
-    let dz = b[1] - s.z
-    let distToWp = Math.hypot(dx, dz)
-    if (distToWp < 3.5) {
-      s.seg = (s.seg + 1) % Math.max(1, route.length - 1)
+    // Update state
+    s.current.x = currentX
+    s.current.z = currentZ
+
+    // Sample the route at current progress to get current position and heading
+    const currentRouteOut = { x: 0, z: 0, yaw: 0, done: false }
+    sampleRoute(route, s.current.progress, currentRouteOut)
+
+    // If route is complete (shouldn't happen for closed loops, but safety)
+    if (currentRouteOut.done) {
+      s.current.progress = 0
+      sampleRoute(route, 0, currentRouteOut)
     }
 
-    if (distToWp < 0.001) { dx = 0; dz = 1; distToWp = 1 }
-    const dirX = dx / distToWp
-    const dirZ = dz / distToWp
-    s.yaw = Math.atan2(dirX, dirZ)
+    // Get look-ahead target for smoother steering
+    const lookAhead = getLookAheadTarget(
+      route, 
+      s.current.progress, 
+      AI_LOOK_AHEAD_DIST + s.current.speed * 0.3,
+      s.current.totalLen
+    )
 
-    let want = AI_CRUISE
-    try {
-      const p = window.__gtathensPlayer
-      if (p) {
-        const pd = Math.hypot(p.x - s.x, p.z - s.z)
-        if (pd < 6) want = 0
-        else if (pd < 12) want = AI_CRUISE * 0.3
+    // Direction to look-ahead target
+    let dx = lookAhead.x - currentX
+    let dz = lookAhead.z - currentZ
+    let distToTarget = Math.hypot(dx, dz)
+
+    // Calculate desired yaw from look-ahead point
+    const desiredYaw = Math.atan2(dx, dz)
+
+    // Off-course recovery: if far from route, steer towards nearest route point
+    let recoverAngle = 0
+    let isOffCourse = false
+    const distToRoute = Math.hypot(
+      currentX - currentRouteOut.x, 
+      currentZ - currentRouteOut.z
+    )
+
+    if (distToRoute > AI_RECOVER_DIST * 0.5) {
+      isOffCourse = true
+      const nearest = findNearestOnRoute(route, currentX, currentZ)
+      if (nearest && nearest.dist > 0.5) {
+        const ndx = nearest.point[0] - currentX
+        const ndz = nearest.point[1] - currentZ
+        const nDist = Math.hypot(ndx, ndz)
+        if (nDist > 0.1) {
+          const recoverYaw = Math.atan2(ndx, ndz)
+          let yawDiff = recoverYaw - s.current.yaw
+          while (yawDiff > Math.PI) yawDiff -= Math.PI * 2
+          while (yawDiff < -Math.PI) yawDiff += Math.PI * 2
+          recoverAngle = yawDiff * 0.5
+          s.current.speed *= 0.97
+        }
       }
-      const others = crash.aiLive
-      for (let k = 0; k < others.length; k += 1) {
-        if (k === index) continue
-        const o = others[k]
-        if (!o || !Number.isFinite(o.x) || !Number.isFinite(o.z)) continue
-        const odx = o.x - s.x
-        const odz = o.z - s.z
-        const od = Math.hypot(odx, odz)
-        const dot = odx * dirX + odz * dirZ
-        if (od < 5.5 && dot > 0) {
-          want = 0
-          break
+    }
+
+    // Check for player proximity - slow down
+    let wantSpeed = carCruise
+    let offRoadPenalty = 1
+    
+    try {
+      // Check if on road
+      const onRoad = isOnAsphalt(currentX, currentZ)
+      if (!onRoad) {
+        // Off road - penalize speed and steer back
+        offRoadPenalty = OFF_ROAD_SPEED_PENALTY
+        
+        // Find nearest road point to steer towards
+        const roadSegs = window.__gtathensRoadCache?.segs
+        if (roadSegs && roadSegs.length > 0) {
+          let nearestRoadX = currentX
+          let nearestRoadZ = currentZ
+          let nearestRoadDist = Infinity
+          
+          // Sample road segments to find nearest point
+          const sampleSteps = Math.min(roadSegs.length, 20)
+          for (let i = 0; i < sampleSteps; i += 1) {
+            const seg = roadSegs[i]
+            const dx = seg.bx - seg.ax
+            const dz = seg.bz - seg.az
+            const L2 = dx * dx + dz * dz
+            let t = L2 > 0 ? ((currentX - seg.ax) * dx + (currentZ - seg.az) * dz) / L2 : 0
+            t = Math.max(0, Math.min(1, t))
+            const px = seg.ax + dx * t
+            const pz = seg.az + dz * t
+            const d = Math.hypot(px - currentX, pz - currentZ)
+            if (d < nearestRoadDist) {
+              nearestRoadDist = d
+              nearestRoadX = px
+              nearestRoadZ = pz
+            }
+          }
+          
+          // If significantly off road, steer towards nearest road point
+          if (nearestRoadDist > OFF_ROAD_PENALTY_DIST) {
+            const roadDx = nearestRoadX - currentX
+            const roadDz = nearestRoadZ - currentZ
+            const roadDir = Math.atan2(roadDx, roadDz)
+            let roadYawDiff = roadDir - s.current.yaw
+            while (roadYawDiff > Math.PI) roadYawDiff -= Math.PI * 2
+            while (roadYawDiff < -Math.PI) roadYawDiff += Math.PI * 2
+            
+            // Add strong road recovery steering
+            recoverAngle += roadYawDiff * 0.4 * Math.min(1, nearestRoadDist / 10)
+            isOffCourse = true
+          }
         }
       }
     } catch { /* ignore */ }
+    
+    // Apply off-road speed penalty before other adjustments
+    wantSpeed *= offRoadPenalty
+    
+    try {
+      const p = window.__gtathensPlayer
+      if (p) {
+        const pd = Math.hypot(p.x - currentX, p.z - currentZ)
+        if (pd < 5) wantSpeed = 0
+        else if (pd < 10) wantSpeed = carCruise * 0.2 * offRoadPenalty
+        else if (pd < 18) wantSpeed = carCruise * 0.5 * offRoadPenalty
+        else if (pd < 25) wantSpeed = carCruise * 0.8 * offRoadPenalty
+      }
+    } catch { /* ignore */ }
 
-    s.speed += (want - s.speed) * Math.min(1, dt * 3.0)
-    const targetVx = dirX * s.speed
-    const targetVz = dirZ * s.speed
+    // Collision avoidance with other AI cars
+    const others = crash.aiLive
+    const [avoidX, avoidZ, imminentCollision] = computeAvoidSteer(
+      currentX, currentZ, s.current.yaw, s.current.speed, 
+      others, index, route
+    )
 
+    // Combine steering: route direction + avoidance + recovery
+    let desiredYawWithAvoid = desiredYaw
+    
+    // Add avoidance steering
+    if (Math.abs(avoidX) > 0.01) {
+      const steerAngle = Math.atan2(avoidX, 1) * 0.6
+      desiredYawWithAvoid += steerAngle
+    }
+
+    // Add recovery steering
+    if (Math.abs(recoverAngle) > 0.01) {
+      desiredYawWithAvoid += recoverAngle
+    }
+
+    // Smooth yaw transition with PID-like control
+    let yawDiff = desiredYawWithAvoid - s.current.yaw
+    while (yawDiff > Math.PI) yawDiff -= Math.PI * 2
+    while (yawDiff < -Math.PI) yawDiff += Math.PI * 2
+
+    // Calculate steering response with proportional + derivative
+    const proportional = yawDiff * 3.0
+    const derivative = -s.current.speed * 0.02 * Math.sign(yawDiff)
+    
+    // Limit turn rate based on speed and conditions
+    let maxTurn = MAX_STEER_ANGLE * (0.5 + s.current.speed * 0.03)
+    maxTurn = Math.min(maxTurn, 0.15)
+    
+    // Stronger correction when off course
+    if (isOffCourse) {
+      maxTurn *= 1.3
+    }
+    
+    // Brake for imminent collision
+    if (imminentCollision) {
+      wantSpeed *= 0.6
+    }
+
+    // Apply smoothed steering
+    const steerInput = Math.max(-maxTurn, Math.min(maxTurn, proportional + derivative))
+    s.current.yaw += steerInput * dt * 12
+
+    // Speed control with smoother acceleration
+    const speedError = wantSpeed - s.current.speed
+    s.current.speed += speedError * Math.min(1, dt * AI_ACCEL_TAU)
+    s.current.speed = Math.max(0, s.current.speed)
+
+    // Calculate velocity from yaw and speed
+    const dirX = Math.sin(s.current.yaw)
+    const dirZ = Math.cos(s.current.yaw)
+    const targetVx = dirX * s.current.speed
+    const targetVz = dirZ * s.current.speed
+
+    // Apply velocity
     const v = rb.linvel ? rb.linvel() : { x: 0, y: 0, z: 0 }
     rb.setLinvel({ x: targetVx, y: v.y, z: targetVz }, true)
 
-    const c = Math.cos(s.yaw / 2)
-    const sinY = Math.sin(s.yaw / 2)
+    // Apply rotation
+    const c = Math.cos(s.current.yaw / 2)
+    const sinY = Math.sin(s.current.yaw / 2)
     rb.setRotation({ x: 0, y: sinY, z: 0, w: c }, true)
 
-    setAiLive(index, s.x, s.z)
-    try { crash.setAiLive(index, s.x, s.z) } catch { /* seam not mounted */ }
+    // Update progress along route
+    const moveAlign = dirX * Math.sin(desiredYaw) + dirZ * Math.cos(desiredYaw)
+    
+    if (distToRoute < AI_RECOVER_DIST) {
+      if (moveAlign > 0.3) {
+        const progressRate = s.current.speed * dt * (0.8 + moveAlign * 0.2)
+        s.current.progress += progressRate
+        if (s.current.progress > s.current.totalLen) {
+          s.current.progress -= s.current.totalLen
+        }
+      }
+    } else {
+      s.current.progress += s.current.speed * dt * 0.2
+      if (s.current.progress > s.current.totalLen) {
+        s.current.progress -= s.current.totalLen
+      }
+    }
+
+    // Update progress along route (only when close to route)
+    if (distToTarget < AI_RECOVER_DIST) {
+      const align = dirX * Math.sin(targetYaw) + dirZ * Math.cos(targetYaw)
+      if (align > 0.5) {
+        s.current.progress += s.current.speed * dt * 0.9
+        if (s.current.progress > s.current.totalLen) {
+          s.current.progress -= s.current.totalLen
+        }
+      }
+    } else {
+      s.current.progress += s.current.speed * dt * 0.3
+      if (s.current.progress > s.current.totalLen) {
+        s.current.progress -= s.current.totalLen
+      }
+    }
+
+    // Update live state for other systems
+    setAiLive(index, currentX, currentZ)
+    try { crash.setAiLive(index, currentX, currentZ) } catch { /* seam not mounted */ }
     try {
       const live = crash.aiLive[index]
-      if (live) live.speed = s.speed
+      if (live) {
+        live.speed = s.current.speed
+        live.yaw = s.current.yaw
+      }
     } catch { /* ignore */ }
 
+    // Update visual group position
     if (gRef.current) {
-      gRef.current.position.set(s.x, tPos.y - half[1], s.z)
-      gRef.current.rotation.set(0, s.yaw, 0)
+      gRef.current.position.set(currentX, tPos.y - half[1], currentZ)
+      gRef.current.rotation.set(0, s.current.yaw, 0)
     }
   })
 
@@ -518,9 +901,84 @@ const AiCar = ({ route, seed, index = 0 }) => {
         <CuboidCollider args={[half[0] + 0.05, half[1] + 0.05, half[2] + 0.05]} friction={0.7} restitution={0.20} />
       </RigidBody>
       <group position={[0, 0, 0]}>
-        <CarModel id={carId} />
+        <Suspense fallback={null}>
+          <CarModel id={carId} />
+        </Suspense>
       </group>
     </group>
+  )
+}
+
+// Debug visualization for AI traffic routes
+const AiTrafficDebug = () => {
+  const [showRoutes, setShowRoutes] = useState(false)
+
+  // Toggle routes on 'T' key
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.code === 'KeyT' && e.target === document.body) {
+        setShowRoutes((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [])
+
+  // Expose toggle via window for programmatic control
+  useEffect(() => {
+    window.__gtathensShowAiRoutes = setShowRoutes
+    return () => { delete window.__gtathensShowAiRoutes }
+  }, [setShowRoutes])
+
+  if (!showRoutes) return null
+
+  return (
+    <>
+      {/* Draw route lines */}
+      {AI_ROUTES.map((route, i) => {
+        if (!route || route.length < 2) return null
+        const points = route.map((p) => [p[0], 0.5, p[1]])
+        return (
+          <Line
+            key={`route-${i}`}
+            points={points}
+            color={CAR_COLORS[i % CAR_COLORS.length]}
+            lineWidth={2}
+            transparent
+            opacity={0.6}
+          />
+        )
+      })}
+      {/* Draw current progress markers for each car */}
+      {AI_ROUTES.map((route, i) => {
+        if (!route || route.length < 2) return null
+        const live = crash.aiLive[i]
+        if (!live || !Number.isFinite(live.x)) return null
+
+        // Find nearest point on route
+        const nearest = findNearestOnRoute(route, live.x, live.z)
+        if (!nearest) return null
+
+        // Sample route at progress
+        const routeOut = { x: 0, z: 0, yaw: 0, done: false }
+        sampleRoute(route, 0, routeOut)
+
+        return (
+          <>
+            {/* Current car position */}
+            <mesh position={[live.x, 0.3, live.z]}>
+              <sphereGeometry args={[0.5, 8, 8]} />
+              <meshBasicMaterial color={CAR_COLORS[i % CAR_COLORS.length]} />
+            </mesh>
+            {/* Progress indicator along route */}
+            <mesh position={[routeOut.x, 0.3, routeOut.z]}>
+              <boxGeometry args={[1, 0.2, 1]} />
+              <meshBasicMaterial color={CAR_COLORS[i % CAR_COLORS.length]} opacity={0.5} transparent />
+            </mesh>
+          </>
+        )
+      })}
+    </>
   )
 }
 
@@ -560,8 +1018,11 @@ const Npcs = ({ spawn = [0, 0] }) => {
       {routes.map((r, i) => (
         <AiCar key={`${key}-car-${i}`} route={r} seed={i} index={i} />
       ))}
+      {/* Debug visualization for AI routes (toggled by 'T' key or window.__gtathensShowAiRoutes) */}
+      <AiTrafficDebug />
     </>
   )
 }
 
+export { AiTrafficDebug }
 export default Npcs

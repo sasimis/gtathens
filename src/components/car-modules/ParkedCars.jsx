@@ -1,6 +1,6 @@
 
 import React, { useEffect, useMemo } from 'react'
-import { useFBX } from '@react-three/drei'
+import { useGLTF } from '@react-three/drei'
 import useGameStore from '../../store/useGameStore'
 import { crash, isOnAsphalt } from './crashManager.js'
 import { HALF, PARK_COUNT, PARK_RADIUS } from './constants.js'
@@ -24,7 +24,7 @@ export const ParkedCars = ({ spawn = [0, 0], count = PARK_COUNT, radius = PARK_R
   useEffect(() => {
     const used = new Set(spots.map((s) => s.id))
     used.forEach((id) => {
-      if (CAR_IDS_SET.has(id)) useFBX.preload(`/models/cars/${id}.fbx`)
+      if (CAR_IDS_SET.has(id)) useGLTF.preload(`/models/cars/${id}.glb`)
     })
   }, [spots])
 
@@ -48,7 +48,7 @@ export const ParkedCars = ({ spawn = [0, 0], count = PARK_COUNT, radius = PARK_R
         const s = spots[i]
         if (!s) return null
         const lp = crash.livePos[i]
-        return { x: lp ? lp.x : s.position[0], z: lp ? lp.z : s.position[2], rot: s.rotation }
+        return { id: s.id, x: lp ? lp.x : s.position[0], z: lp ? lp.z : s.position[2], rot: s.rotation }
       },
       // Raw Rapier body type per parked car, as a number:
       // 0 = dynamic, 1 = fixed, 2 = kinematicPosition, 3 = kinematicVelocity.

@@ -35,13 +35,23 @@ const PhysicsProbe = () => {
 }
 
 /** Exposes the three scene (read-only) for the smoke test's material probes —
- * pavement/road texel density and polygonOffset are invisible in a state dump. */
+ * pavement/road texel density and polygonOffset are invisible in a state dump.
+ * Also publishes the live render camera + renderer so headless probes can
+ * project world points into NDC and read renderer.info directly. */
 const SceneProbe = () => {
   const scene = useThree((s) => s.scene)
+  const camera = useThree((s) => s.camera)
+  const gl = useThree((s) => s.gl)
   useEffect(() => {
     window.__gtathensScene = scene
-    return () => { delete window.__gtathensScene }
-  }, [scene])
+    window.__gtathensCam3 = camera
+    window.__gtathensGl = gl
+    return () => {
+      delete window.__gtathensScene
+      delete window.__gtathensCam3
+      delete window.__gtathensGl
+    }
+  }, [scene, camera, gl])
   return null
 }
 
@@ -170,6 +180,11 @@ const App = () => {
   const toggleColliders = () => {
     if (window.__gtathensDebug) window.__gtathensDebug.colliders()
   }
+  const toggleAiRoutes = () => {
+    if (typeof window.__gtathensShowAiRoutes === 'function') {
+      window.__gtathensShowAiRoutes((v) => !v)
+    }
+  }
 
   return (
     <div style={{ width: '100vw', height: '100vh', background: 'black' }}>
@@ -183,6 +198,7 @@ const App = () => {
       <div className="debug-buttons">
         <button onClick={toggleDebug} title="FPS / memory / physics stats (H)">DEBUG</button>
         <button onClick={toggleColliders} title="Show collision shapes (G)">HITBOX</button>
+        <button onClick={toggleAiRoutes} title="Show AI traffic routes (T)">TRAFFIC</button>
       </div>
       <MenuRoot />
       <InputPrompts />

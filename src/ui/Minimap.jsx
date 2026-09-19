@@ -41,21 +41,23 @@ const getPlayerPosAndYaw = () => {
       }
     }
 
-    const cam = window.__gtathensCam
-    if (cam && Number.isFinite(cam.yaw)) {
-      yaw = cam.yaw
-    }
-    // Second opinion: pick the orientation the player actually faces, not the
-    // compass-facing convention a harness may install on window.__gtathensCam.
-    // The in-game player trace is written every physics frame and is the same
-    // source the follow camera is synced to, so it is the most reliable "forward"
-    // source for the minimap when both are available.
+    // Determine the FORWARD direction of the minimap.
+    // We want the arrow to point where the player is GOING, not where the camera
+    // compass happens to look.  Prefer the player's actual camera yaw, and only
+    // fall back to the harness-spied camera object when the player trace is
+    // unavailable (menu/debug quirks).
     try {
       const pl = window.__gtathensPlayer
       if (pl && Number.isFinite(pl.x) && Number.isFinite(pl.z) && Number.isFinite(pl.camYaw)) {
         yaw = pl.camYaw
       }
     } catch { /* ignore */ }
+
+    // Last resort: if even the player trace is missing, obey the camera object.
+    const cam = window.__gtathensCam
+    if (!Number.isFinite(yaw) && cam && Number.isFinite(cam.yaw)) {
+      yaw = cam.yaw
+    }
   } catch { /* fallback */ }
   return { px, pz, yaw }
 }
@@ -245,30 +247,24 @@ const Minimap = () => {
         ctx.fillText(pt.label, mx, my)
       }
 
-      // Player Blip (center arrow pointing UP = minimap north = camera-back)
-      ctx.fillStyle = '#f5b800'
-      ctx.strokeStyle = '#151a22'
-      ctx.lineWidth = 1.5
-      ctx.beginPath()
-      ctx.moveTo(cX, cY - 8)
-      ctx.lineTo(cX + 6, cY + 6)
-      ctx.lineTo(cX, cY + 3)
-      ctx.lineTo(cX - 6, cY + 6)
-      ctx.closePath()
-      ctx.fill()
-      ctx.stroke()
-
-      // Player heading tick: short triangle at top edge pointing along camera-back
-      // (so the arrow + tick together read as "this way is forward / up the map").
+      // Player facing indicator.
+      // The arrow points in the direction the vehicle/player is facing on the map.
+      // We draw it in minimap-local space where +canvasX = map-right and +canvasY = map-down,
+      // then rotate it around the center so the tip tracks the current yaw.
       ctx.save()
       ctx.translate(cX, cY)
+      ctx.rotate(yaw)
+      // After rotation, local +Y points toward the vehicle's heading on the minimap.
       ctx.beginPath()
-      ctx.moveTo(0, -MAP_RADIUS + 12)       // tip near top edge
-      ctx.lineTo(-4, -MAP_RADIUS + 4)       // left base
-      ctx.lineTo(4, -MAP_RADIUS + 4)        // right base
+      ctx.moveTo(0, 10)          // tip = heading
+      ctx.lineTo(-6, -4)         // left flank
+      ctx.lineTo(6, -4)          // right flank
       ctx.closePath()
-      ctx.fillStyle = 'rgba(245, 184, 0, 0.85)'
+      ctx.fillStyle = '#f5b800'
       ctx.fill()
+      ctx.strokeStyle = '#151a22'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
       ctx.restore()
 
       animId = requestAnimationFrame(render)

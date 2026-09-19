@@ -1,0 +1,6 @@
+state: {"cars":true,"tp":true,"player":true}
+spot ids: ["sedan","suv-green","sedan-darkred","muscle","muscle-teal","suv-green","sports","sedan-darkred","sedan","muscle","muscle-teal","muscle-black","sedan-darkred","muscle","muscle-black","sports-yellow","muscle","sedan","sports","muscle-teal","muscle-teal","sedan","sedan-blue","muscle-green","sedan","suv"]
+saved shot-car-spot0-sedan.png
+saved shot-car-spot7-sedan-darkred.png
+saved shot-car-spot17-sedan.png
+done

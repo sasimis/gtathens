@@ -4,7 +4,7 @@
 //   utils/misc.js      — normalizeId, hash01, roadHeading
 //   crashManager.js    — ONE CrashManager singleton owns livePos, damage,
 //                        loose, bodies, AI-traffic live state, isOnAsphalt
-//   CarModel.jsx       — memoized FBX model, per-instance paint via userData
+//   CarModel.jsx       — memoized GLB model (re-centered at load), per-instance damage tint
 //   Car.jsx            — fixed body + imperative fixed<->dynamic toggle
 //   useParkingSpots.js — deterministic layout, AbortController, bbox cull
 //   CarDriver.jsx      — keys in useRef, exitCar useCallback, LooseSettler
@@ -89,7 +89,7 @@ const carsQA = {
     const s = (spotsForQA.value || [])[i]
     if (!s) return null
     const lp = crashForQA.livePos[i]
-    return { x: lp ? lp.x : s.position[0], z: lp ? lp.z : s.position[2], rot: s.rotation }
+    return { id: s.id, x: lp ? lp.x : s.position[0], z: lp ? lp.z : s.position[2], rot: s.rotation }
   },
   btype: (i) => {
     const rb = crashForQA.bodies[i]

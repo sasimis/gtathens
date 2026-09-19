@@ -108,9 +108,9 @@ export const Car = React.memo(function Car({
 export const CarByColor = ({ color, id, ...rest }) => {
   if (!id && typeof color === 'string') {
     const c = color.toLowerCase()
-    if (c.includes('1565c0') || c.includes('blue')) id = 'sedan'
-    else if (c.includes('c62828') || c.includes('red')) id = 'sports'
-    else id = 'hatchback'
+    if (c.includes('1565c0') || c.includes('blue')) id = 'sedan-blue'
+    else if (c.includes('c62828') || c.includes('red')) id = 'muscle'
+    else id = 'sedan'
   }
   return <Car id={id} {...rest} />
 }

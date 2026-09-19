@@ -1,30 +1,34 @@
-
 // car-modules/constants.js
-export const UNIT = 0.01
+// KayKit-style GLB car pack (public/models/cars/*.glb): authored in meters,
+// Y-up, wheels on y=0, nose along +Z. HALF comes from the models' measured
+// world-space bboxes (scripts/car-lab.mjs + carlab-boxes.json).
 export const PARK_COUNT = 26
 export const PARK_RADIUS = 280
 
 export const CAR_IDS = [
-  'sedan','taxi','hatchback','sports','roadster','muscle','muscle-2',
-  'suv','pickup','van','ambulance','bus','firetruck','truck',
-  'truck-with-trailer','limousine','police-sedan','police-muscle',
-  'police-sports','police-suv','monster-truck',
+  'sedan', 'sedan-blue', 'sedan-darkred',
+  'sports', 'sports-yellow', 'sports-stripe',
+  'muscle', 'muscle-black', 'muscle-green', 'muscle-teal',
+  'suv', 'suv-black', 'suv-green', 'suv-teal',
+  'suv-yellow', 'suv-blue', 'suv-orange', 'suv-red',
 ]
 
 export const HALF = {
-  sedan:[1.4,1.0,2.6], taxi:[1.4,1.0,2.6], hatchback:[1.35,1.0,2.5],
-  sports:[1.4,0.9,2.6], roadster:[1.4,0.9,2.6],
-  muscle:[1.4,1.0,2.7], 'muscle-2':[1.4,1.0,2.7],
-  suv:[1.5,1.2,2.8], pickup:[1.5,1.15,2.9],
-  van:[1.5,1.35,3.1], ambulance:[1.5,1.35,3.3],
-  bus:[1.9,2.1,6.9], firetruck:[1.7,1.6,4.4],
-  truck:[1.7,1.6,4.2], 'truck-with-trailer':[1.7,2.0,6.8],
-  limousine:[1.4,1.0,3.6], 'police-sedan':[1.4,1.0,2.6],
-  'police-muscle':[1.4,1.0,2.7], 'police-sports':[1.4,0.9,2.6],
-  'police-suv':[1.5,1.2,2.8], 'monster-truck':[1.9,1.7,3.0],
+  sedan: [0.95, 0.71, 2.49], 'sedan-blue': [0.9, 0.71, 2.41],
+  'sedan-darkred': [0.9, 0.71, 2.41],
+  sports: [0.95, 0.72, 2.49], 'sports-yellow': [0.95, 0.72, 2.49],
+  'sports-stripe': [0.95, 0.71, 2.49],
+  muscle: [1.0, 0.77, 2.35], 'muscle-black': [0.9, 0.69, 2.41],
+  'muscle-green': [1.0, 0.77, 2.35], 'muscle-teal': [1.0, 0.79, 2.35],
+  suv: [1.19, 1.02, 2.6], 'suv-black': [1.19, 1.02, 2.6],
+  'suv-green': [1.19, 1.02, 2.6], 'suv-teal': [1.19, 1.0, 2.55],
+  'suv-yellow': [1.19, 1.01, 2.55], 'suv-blue': [1.19, 1.01, 2.55],
+  'suv-orange': [1.19, 1.02, 2.6], 'suv-red': [1.19, 1.02, 2.6],
 }
 
-export const LONG_IDS = new Set(['bus','truck-with-trailer','firetruck','limousine'])
+// Nothing in the new pack is oversized (longest = 5.2 m SUV) — kept as an
+// empty set so useParkingSpots' long-vehicle substitution is a no-op.
+export const LONG_IDS = new Set([])
 
 // Rapier collision groups
 export const GROUP_GROUND = 0x0001

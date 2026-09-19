@@ -25,7 +25,7 @@ World units are meters (1 unit = 1 m); north = -Z, east = +X
 | Store | `workspace/src/store/useGameStore.js` | `Phase` machine, `spawn`, `character`, `driving` (car index or null), `nearCar`, `respawn` (exit-car handoff), `gameTime` (~4 Hz writes), `camView` 0/1/2 + `setCamView`/`cycleCamView`, `CAM_VIEWS` presets. Persisted: settings only (`gtathens-v2`). |
 | On-foot player | `workspace/src/components/Player.jsx` | Capsule (half 0.6 + r 0.35 = 1.9 m, center y 0.95, model feet at collider bottom). **W = camera-forward, S = back, A/D = strafe + slight turn** (faces move dir, strafe leans ≤ ~35°). `CarEntrance` polls `useParkingSpots` every 100 ms with hysteresis (enter 3.4 m, keep 4.2 m) → stable `nearCar` / F prompt + re-entry. |
 | Camera | `workspace/src/components/FollowCamera.jsx` | Fixed presets only (Near 5.5 m / Std 8.5 m / Far 12.5 m). Keys **1/2/3** jump, **V** cycles, vertical drag = pitch trim, wheel ignored. `CameraRig` raycasts head→goal (3-arg castRay, 0.4 m self-guard, min 1.2 m shoulder-cam, floor ≥ 0.7 m). |
-| Cars | `workspace/src/components/car-modules/*` (barrel: `Car.jsx`) | Rgsdev FBX pack (`/models/cars/*.fbx`, UNIT 0.01). Split into `constants.js` (IDs/HALF/groups/tuning) · `crashManager.js` (`crash` singleton = bodies/livePos/damage/loose + `setRigidBodyType`) · `Car.jsx` (+`CarModel`) · `CarDriver.jsx` (+`LooseSettler`) · `ParkedCars.jsx` · `useParkingSpots.js` · `utils/{polygon,misc}.js`. **`components/Car.jsx` is now a compat barrel (+ `CarModel`) — the real code lives in `car-modules/`.** `useParkingSpots` = deterministic layout shared by renderer + enter detection. Collision groups are two-sided: cars accept ground+player+car+building, player accepts all. `CarDriver` forces lin/ang vel (kinematic arcade), gamepad RT/LT/A/stick + B exit, asphalt-vs-grass speed split (`isOnAsphalt`). **Car-vs-car crashes**: parked cars knock loose (fixed→dynamic in place) on impact + take `crash.damage` (dents/scorch visuals, HUD `DMG` chip while driving, engine/steering penalty); `LooseSettler` re-freezes settled cars. QA hook `window.__gtathensCars` (`.ram(i)`, `.btype(i)` — drives/verifies the smoke test). |
+| Cars | `workspace/src/components/car-modules/*` (barrel: `Car.jsx`) | KayKit GLB pack (`/models/cars/*.glb`, meters, showroom XZ offsets re-centered by `CarModel`; materials cloned + `metalness` zeroed + array-shape preserved — see gotchas). Split into `constants.js` (IDs/HALF/groups/tuning) · `crashManager.js` (`crash` singleton = bodies/livePos/damage/loose + `setRigidBodyType`) · `Car.jsx` (+`CarModel`) · `CarDriver.jsx` (+`LooseSettler`) · `ParkedCars.jsx` · `useParkingSpots.js` · `utils/{polygon,misc}.js`. **`components/Car.jsx` is now a compat barrel (+ `CarModel`) — the real code lives in `car-modules/`.** `useParkingSpots` = deterministic layout shared by renderer + enter detection. Collision groups are two-sided: cars accept ground+player+car+building, player accepts all. `CarDriver` forces lin/ang vel (kinematic arcade), gamepad RT/LT/A/stick + B exit, asphalt-vs-grass speed split (`isOnAsphalt`). **Car-vs-car crashes**: parked cars knock loose (fixed→dynamic in place) on impact + take `crash.damage` (dents/scorch visuals, HUD `DMG` chip while driving, engine/steering penalty); `LooseSettler` re-freezes settled cars. QA hook `window.__gtathensCars` (`.ram(i)`, `.btype(i)` — drives/verifies the smoke test; `.spot(i)` includes the car `id`). |
 | Buildings | `workspace/src/components/City.jsx` | Kenney GLB pools via `<Merged>` (module-level cache — never rename per render). Colliders = **ConvexHullCollider per RENDERED-model silhouette** (`xzHull` of the model's real XZ vertices, mapped through the exact mesh transform `T*R*S` incl. the 0.94 fit shrink) — collision lands ON the visible walls, NOT the OSM outline (kept only as fallback) or bbox. `hullVerts()` builds a **flat `Float32Array`** + rejects degenerate rings (see gotcha). `planBuildings` keeps `footprint` (world silhouette) + `colH` (real rendered height, `meta.h * sy`). |
 | Character | `workspace/src/components/Protagonist.jsx` | Kenney FBX 1.8 m, feet local 0. Anim mixer: idle pre-posed at full weight (no T-pose flash), 0.25/0.30 s crossfades, mixer step clamped ≤ 0.05. Root motion stripped (physics owns translation). |
 | Light / shadows | `workspace/src/components/DayNightCycle.jsx` | 48-min cycle, HUD clock throttled. **Tight 120 m shadow box that follows the camera target** (`shadowFocus` lerp) + `normalBias 0.6` = smooth shadows. Wide boxes = blocky/gonky. |
@@ -134,6 +134,26 @@ World units are meters (1 unit = 1 m); north = -Z, east = +X
   (collinear) rings, duplicate or non-finite points. Always: flat array +
   de-dup + shoelace-area guard + rectangular fallback. Reproduce/verify with
   `node scripts/hull-repro.mjs`, which runs the real code path in Node.
+- **A mesh with an ARRAY material and NO `geometry.groups` silently renders
+  NOTHING.** three's `projectObject()` builds render items PER GROUP when
+  `Array.isArray(material)` — empty `groups` → zero pushes, no error, no
+  warning. The KayKit car GLB swap looked like "cars don't render" while
+  physics, the F prompt and crash tests all passed (the meshes sat in the
+  scene graph at the right spots, `visible:true`, correct NDC). `CarModel`'s
+  clone step used to wrap the GLB's single material into `[material]`; it now
+  PRESERVES the shape (`Array.isArray(o.material) ? map(fixOne) :
+  fixOne(o.material)`). Prove either direction live with
+  `scripts/probe-carviz.mjs` (boots the real game: GLB parse, scene census at
+  the parking spots, live material/frustum dump, magenta-material A/B swap +
+  screenshots). `SceneProbe` (App.jsx) publishes `window.__gtathensScene`,
+  `__gtathensCam3` (live camera) and `__gtathensGl` (renderer.info) for it.
+- **The KayKit car GLBs omit `metallicFactor` → glTF default 1.0 →
+  `metalness: 1`** = full metal with no `scene.environment` to reflect →
+  near-black paint against dark asphalt (looks "invisible" too).
+  `CarModel` zeroes `metalness` and floors `roughness` at 0.55 on the cloned
+  materials. Check any future GLB pack statically with
+  `node scripts/glb-pbr.mjs` (dumps each GLB's PBR factors + root node
+  transform from the JSON chunk, no browser needed).
 - Rapier collides A↔B only if EACH side's filter accepts the other — when adding
   a group, update BOTH sides (this exact bug made cars ghost through players).
 - **`rb.setBodyType('fixed')` silently makes the body DYNAMIC — the arg is a

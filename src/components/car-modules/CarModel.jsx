@@ -1,32 +1,53 @@
 
 import React, { useEffect, useMemo, useRef } from 'react'
-import { useFBX } from '@react-three/drei'
-import { UNIT } from './constants.js'
+import { useGLTF } from '@react-three/drei'
+import * as THREE from 'three'
 import { normalizeId } from './utils/misc.js'
 
+// The GLB pack (public/models/cars/*.glb) is authored in meters, Y-up, wheels
+// resting on y=0 and the nose along +Z — but every export carries a showroom
+// XZ offset (the models were laid out in a row before export), so the clone is
+// re-centered on X/Z and snapped down to the ground here, once per load.
 export const CarModel = React.memo(function CarModel({ id, damage = 0, seed = null }) {
   const file = normalizeId(id)
-  const fbx = useFBX(`/models/cars/${file}.fbx`)
+  const gltf = useGLTF(`/models/cars/${file}.glb`)
 
-  // Clone once per FBX, clone materials once and keep original color
+  // Clone once per load; clone materials once and keep original color so the
+  // damage tint below never leaks into the shared drei cache.
+  // metalness is zeroed because these GLBs omit `metallicFactor`, so the glTF
+  // default 1.0 applies — a full metal with no scene.environment to reflect
+  // renders near-black (measured black-on-asphalt from the GLB JSON chunk).
+  // The material ARRAY-shape trap is handled below (see fixOne comment) — that
+  // one is what actually made the cars invisible.
   const scene = useMemo(() => {
-    const clone = fbx.clone(true)
-    clone.scale.setScalar(UNIT)
+    const clone = gltf.scene.clone(true)
+    const box = new THREE.Box3().setFromObject(clone)
+    clone.position.x -= (box.min.x + box.max.x) / 2
+    clone.position.z -= (box.min.z + box.max.z) / 2
+    clone.position.y -= box.min.y
     clone.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true
         o.receiveShadow = true
         if (!o.material) return
-        const mats = Array.isArray(o.material) ? o.material : [o.material]
-        o.material = mats.map((m) => {
+        const fixOne = (m) => {
+          if (!m) return m
           const c = m.clone()
-          c.userData.originalColor = c.color.clone()
+          if (typeof c.metalness === 'number') c.metalness = 0
+          if (typeof c.roughness === 'number') c.roughness = Math.max(0.55, c.roughness)
+          c.userData.originalColor = c.color ? c.color.clone() : null
           return c
-        })
+        }
+        // KEEP THE MATERIAL SHAPE: a single material must stay single. An
+        // ARRAY material on a geometry with no `groups` makes three.js
+        // projectObject() push ZERO render items — the mesh silently draws
+        // nothing (scene graph, physics and enter-detection all keep working,
+        // which is exactly why these cars were "there" but never visible).
+        o.material = Array.isArray(o.material) ? o.material.map(fixOne) : fixOne(o.material)
       }
     })
     return clone
-  }, [fbx])
+  }, [gltf])
 
   const wrapRef = useRef(null)
 

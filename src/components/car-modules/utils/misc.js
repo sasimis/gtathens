@@ -1,9 +1,11 @@
 
+
 export const CAR_IDS_SET = new Set([
-  'sedan','taxi','hatchback','sports','roadster','muscle','muscle-2',
-  'suv','pickup','van','ambulance','bus','firetruck','truck',
-  'truck-with-trailer','limousine','police-sedan','police-muscle',
-  'police-sports','police-suv','monster-truck',
+  'sedan', 'sedan-blue', 'sedan-darkred',
+  'sports', 'sports-yellow', 'sports-stripe',
+  'muscle', 'muscle-black', 'muscle-green', 'muscle-teal',
+  'suv', 'suv-black', 'suv-green', 'suv-teal',
+  'suv-yellow', 'suv-blue', 'suv-orange', 'suv-red',
 ])
 
 export const normalizeId = (id) => CAR_IDS_SET.has(id) ? id : 'sedan'

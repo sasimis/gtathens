@@ -1,0 +1,38 @@
+18 models -> 6 cols x 3 rows, yaw 38deg
+  cell r0c0 = Object545.glb
+  cell r0c1 = Object546.glb
+  cell r0c2 = Object547.glb
+  cell r0c3 = Object548.glb
+  cell r0c4 = Object549.glb
+  cell r0c5 = Object550.glb
+  cell r1c0 = Object551.glb
+  cell r1c1 = Object552.glb
+  cell r1c2 = Object554.glb
+  cell r1c3 = Object557.glb
+  cell r1c4 = Object563.glb
+  cell r1c5 = Object564.glb
+  cell r2c0 = Object565.glb
+  cell r2c1 = Object566.glb
+  cell r2c2 = Object567.glb
+  cell r2c3 = Object568.glb
+  cell r2c4 = Object569.glb
+  cell r2c5 = Object570.glb
+  Object545.glb  bbox 2.38 x 2.03 x 5.21
+  Object546.glb  bbox 2.38 x 2.03 x 5.21
+  Object547.glb  bbox 2.38 x 2.03 x 5.21
+  Object548.glb  bbox 2.38 x 2.00 x 5.09
+  Object549.glb  bbox 2.38 x 2.02 x 5.09
+  Object550.glb  bbox 2.38 x 2.02 x 5.09
+  Object551.glb  bbox 2.38 x 2.03 x 5.21
+  Object552.glb  bbox 2.38 x 2.03 x 5.21
+  Object554.glb  bbox 1.90 x 1.42 x 4.98
+  Object557.glb  bbox 2.00 x 1.54 x 4.71
+  Object563.glb  bbox 1.79 x 1.38 x 4.81
+  Object564.glb  bbox 1.90 x 1.44 x 4.98
+  Object565.glb  bbox 2.00 x 1.54 x 4.71
+  Object566.glb  bbox 1.79 x 1.41 x 4.81
+  Object567.glb  bbox 1.90 x 1.44 x 4.98
+  Object568.glb  bbox 2.00 x 1.57 x 4.71
+  Object569.glb  bbox 1.79 x 1.41 x 4.81
+  Object570.glb  bbox 1.90 x 1.43 x 4.98
+wrote workspace\scripts\new-cars-38.png  1800x600
