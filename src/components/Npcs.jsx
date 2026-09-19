@@ -515,7 +515,7 @@ const AiCar = ({ route, seed, index = 0 }) => {
         angularDamping={2.0}
         onCollisionEnter={(p) => { try { audio.crash(0.3) } catch { /* ignore */ } }}
       >
-        <CuboidCollider args={[half[0], half[1], half[2]]} friction={0.9} restitution={0.05} />
+        <CuboidCollider args={[half[0] + 0.05, half[1] + 0.05, half[2] + 0.05]} friction={0.7} restitution={0.20} />
       </RigidBody>
       <group position={[0, 0, 0]}>
         <CarModel id={carId} />
