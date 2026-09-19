@@ -1036,8 +1036,8 @@ body.gt-hide-cursor canvas {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 300px;
-  height: 300px;
+  width: 380px;
+  height: 380px;
   transform: translate(-50%, -50%);
   border: 2px solid rgba(255, 255, 255, 0.25);
   border-radius: 50%;
@@ -1068,7 +1068,7 @@ body.gt-hide-cursor canvas {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  min-width: 88px;
+  min-width: 92px;
   padding: 8px 10px;
   color: var(--text);
   background: rgba(13, 20, 32, 0.85);
@@ -1083,9 +1083,24 @@ body.gt-hide-cursor canvas {
   background: rgba(245, 184, 0, 0.18);
 }
 
+/* Unowned weapon: dimmed silhouette + "locked" caption, no pointer. */
+.wheel-slot.locked {
+  opacity: 0.42;
+  cursor: default;
+  border-style: dashed;
+}
+
 .wheel-glyph {
-  font-size: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  color: #ffd028;
   line-height: 1;
+}
+
+.wheel-slot.locked .wheel-glyph {
+  color: var(--text-dim);
 }
 
 .wheel-name {
@@ -1176,8 +1191,22 @@ body.gt-hide-cursor canvas {
 }
 
 .inv-glyph {
-  font-size: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  color: #ffd028;
   line-height: 1;
+}
+
+.inv-cell.locked {
+  opacity: 0.42;
+  cursor: default;
+  border-style: dashed;
+}
+
+.inv-cell.locked .inv-glyph {
+  color: var(--text-dim);
 }
 
 .inv-name {
@@ -1362,7 +1391,7 @@ body.gt-hide-cursor canvas {
   box-shadow: 0 0 0 1px #4caf50 inset;
 }
 .sa-slot.on .sa-name { color: #ffd028; }
-.sa-glyph { font-size: 30px; line-height: 1; filter: grayscale(1) brightness(1.15); }
+.sa-glyph { display: flex; align-items: center; justify-content: center; height: 34px; line-height: 1; color: #e8edf5; }
 .sa-name {
   font-family: 'Arial Black', 'Impact', sans-serif;
   font-size: 12px;

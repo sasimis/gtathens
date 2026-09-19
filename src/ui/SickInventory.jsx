@@ -2,54 +2,61 @@ import React, { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DndContext, PointerSensor, useSensor, useSensors, useDraggable, useDroppable } from '@dnd-kit/core'
 import useGameStore, { Phase } from '../store/useGameStore'
-import { WEAPONS } from '../lib/weapons'
+import { WEAPONS, WEAPON_ORDER } from '../lib/weapons'
+import WeaponIcon from './WeaponIcon'
 import { audio } from '../lib/audio'
 import { BTN, getGamepad, padEdge } from '../lib/gamepad'
 
-const GLYPH = { fists: '✊', pistol: '🔫', smg: '💥' }
-const glyphFor = (id) => GLYPH[id] || '▦'
-const WHEEL_R = 130
+// Fixed slots: EVERY weapon always renders in WEAPON_ORDER so slots never
+// move as you pick guns up (GTA V behaviour). Unowned guns show dimmed +
+// locked and cannot be equipped.
+const WHEEL_R = 165
 
-const WheelSlot = ({ id, i, n, active, ammo, onHover }) => {
+const WheelSlot = ({ id, i, n, active, owned, ammo, onHover, onPick }) => {
   const ang = (i / n) * Math.PI * 2 - Math.PI / 2
   const x = Math.cos(ang) * WHEEL_R
   const y = Math.sin(ang) * WHEEL_R
   const def = WEAPONS[id]
   return (
     <motion.button
-      className={`wheel-slot${active ? ' on' : ''}`}
+      className={`wheel-slot${active ? ' on' : ''}${owned ? '' : ' locked'}`}
       style={{ left: `calc(50% + ${x}px)`, top: `calc(50% + ${y}px)` }}
       initial={{ opacity: 0, scale: 0.4 }}
       animate={{ opacity: 1, scale: active ? 1.18 : 1 }}
       exit={{ opacity: 0, scale: 0.4, transition: { duration: 0.12 } }}
       transition={{ type: 'spring', stiffness: 500, damping: 26, delay: i * 0.02 }}
-      onMouseEnter={() => onHover(id)}
-      onClick={() => onHover(id)}
+      onMouseEnter={() => { if (owned) onHover(id) }}
+      onClick={() => { if (owned) onPick(id) }}
     >
-      <span className="wheel-glyph">{glyphFor(id)}</span>
+      <span className="wheel-glyph"><WeaponIcon id={id} size={32} /></span>
       <span className="wheel-name">{def ? def.name : id}</span>
-      {ammo && <span className="wheel-ammo">{ammo.mag}/{ammo.reserve}</span>}
+      {id === 'fists'
+        ? <span className="wheel-ammo">—</span>
+        : <span className="wheel-ammo">{owned && ammo ? `${ammo.mag}/${ammo.reserve}` : 'locked'}</span>}
     </motion.button>
   )
 }
 
-const GridSlot = ({ id, ammo, equipped, onEquip }) => {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id })
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id })
+const GridSlot = ({ id, ammo, equipped, owned, onEquip }) => {
+  // Locked (unowned) guns are NOT draggable/droppable: they use fixed ids so
+  // dnd-kit never sees them, and clicks are ignored.
+  const dragId = owned ? id : `locked-${id}`
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: dragId, disabled: !owned })
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: dragId, disabled: !owned })
   const def = WEAPONS[id]
   return (
     <motion.div
       ref={(n) => { setNodeRef(n); setDropRef(n) }}
       {...listeners}
       {...attributes}
-      className={`inv-cell${equipped ? ' on' : ''}${isOver ? ' drop' : ''}`}
+      className={`inv-cell${equipped ? ' on' : ''}${isOver ? ' drop' : ''}${owned ? '' : ' locked'}`}
       style={{ opacity: isDragging ? 0.35 : 1 }}
-      whileHover={{ scale: 1.08 }}
-      onClick={() => onEquip(id)}
+      whileHover={owned ? { scale: 1.08 } : undefined}
+      onClick={() => { if (owned) onEquip(id) }}
     >
-      <span className="inv-glyph">{glyphFor(id)}</span>
+      <span className="inv-glyph"><WeaponIcon id={id} size={34} /></span>
       <span className="inv-name">{def ? def.name : id}</span>
-      <span className="inv-ammo">{ammo ? `${ammo.mag} / ${ammo.reserve}` : '—'}</span>
+      <span className="inv-ammo">{id === 'fists' ? '—' : owned && ammo ? `${ammo.mag} / ${ammo.reserve}` : 'locked'}</span>
     </motion.div>
   )
 }
@@ -72,6 +79,8 @@ const SickInventory = () => {
 
   const hoverRef = useRef(hover)
   hoverRef.current = hover
+  // Owned ids (fists is implicit) — memoised so effects below can use it.
+  const ownedIds = React.useMemo(() => new Set(weapons.map((w) => w.id)), [weapons])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -164,17 +173,17 @@ const SickInventory = () => {
 
   useEffect(() => {
     if (!wheel) return
-    const order = ['fists', ...weapons.map((w) => w.id)]
     const onKey = (e) => {
       if (e.code !== 'ArrowRight' && e.code !== 'ArrowLeft') return
       e.preventDefault()
+      const order = WEAPON_ORDER.filter((id) => id === 'fists' || ownedIds.has(id))
       const i = order.indexOf(hover ?? equipped)
       const d = e.code === 'ArrowRight' ? 1 : -1
       setHover(order[(i + d + order.length) % order.length])
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [wheel, weapons, hover, equipped])
+  }, [wheel, weapons, hover, equipped, ownedIds])
 
   useEffect(() => {
     if (phase !== Phase.PLAYING && (gridOpen || wheel)) {
@@ -184,8 +193,9 @@ const SickInventory = () => {
   }, [phase, gridOpen, wheel, close])
 
   if (phase !== Phase.PLAYING) return null
-  const slots = ['fists', ...weapons.map((w) => w.id)]
+  const slots = [...WEAPON_ORDER]
   const ammoOf = (id) => (id === 'fists' ? null : weapons.find((w) => w.id === id) || null)
+  const ownedOf = (id) => id === 'fists' || ownedIds.has(id)
 
   return (
     <AnimatePresence>
@@ -194,7 +204,7 @@ const SickInventory = () => {
           className="wheel-screen"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           transition={{ duration: 0.12 }}
-          onMouseUp={() => { tabDown.current = false; setWheel(false); if (hover) equip(hover) }}
+          onMouseUp={() => { tabDown.current = false; setWheel(false); if (hover && ownedOf(hover)) equip(hover) }}
         >
           <div className="wheel-ring" />
           <div className={`wheel-core${hover && hover !== equipped ? ' new' : ''}`}>
@@ -202,9 +212,11 @@ const SickInventory = () => {
           </div>
           {slots.map((id, i) => (
             <WheelSlot key={id} id={id} i={i} n={slots.length}
-              active={hover === id || (slots.length === 1 && id === equipped)}
+              active={hover === id}
+              owned={ownedOf(id)}
               ammo={ammoOf(id)}
               onHover={setHover}
+              onPick={(pid) => { tabDown.current = false; setWheel(false); equip(pid) }}
             />
           ))}
           <div className="wheel-hint">hold Tab · release to equip</div>
@@ -222,14 +234,16 @@ const SickInventory = () => {
             <div className="sick-title">INVENTORY</div>
             <div className="sick-cash">${money}</div>
             <DndContext sensors={sensors} onDragEnd={({ active, over }) => {
-              if (over && active.id !== over.id) {
+              // Locked slots use `locked-*` ids — ignore drops involving them.
+              if (!over || String(active.id).startsWith('locked-') || String(over.id).startsWith('locked-')) return
+              if (active.id !== over.id) {
                 reorder(active.id, over.id)
                 audio.play('pickup', 1.4, 0.5)
               }
             }}>
               <div className="sick-grid">
                 {slots.map((id) => (
-                  <GridSlot key={id} id={id} ammo={ammoOf(id)} equipped={equipped === id} onEquip={equip} />
+                  <GridSlot key={id} id={id} ammo={ammoOf(id)} equipped={equipped === id} owned={ownedOf(id)} onEquip={equip} />
                 ))}
               </div>
             </DndContext>

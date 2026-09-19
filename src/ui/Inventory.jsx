@@ -4,15 +4,11 @@
 import React, { useEffect, useState } from 'react'
 import useGameStore, { Phase } from '../store/useGameStore'
 import { WEAPONS, WEAPON_ORDER } from '../lib/weapons'
+import WeaponIcon from './WeaponIcon'
 
 // GTA: San Andreas weapon wheel order (slots left -> right, top -> bottom).
 // Fists first, then everything the player actually owns.
 const SA_SLOTS = [...WEAPON_ORDER]
-
-// Tiny monochrome glyph per weapon id so the grid reads at a glance without
-// importing asset art (the game is asset-free low-poly).
-const GLYPH = { fists: '✊', pistol: '🔫', smg: '🔫' }
-const glyphFor = (id) => GLYPH[id] || '▦'
 
 const Inventory = () => {
   const phase = useGameStore((s) => s.phase)
@@ -101,7 +97,7 @@ const Inventory = () => {
                     onClick={() => equip(id)}
                     onMouseEnter={() => setCursor(i)}
                   >
-                    <span className="sa-glyph">{glyphFor(id)}</span>
+                    <span className="sa-glyph"><WeaponIcon id={id} size={32} /></span>
                     <span className="sa-name">{def ? def.name : id}</span>
                     <span className="sa-ammo">{ammo ? `${ammo.mag} / ${ammo.reserve}` : '—'}</span>
                   </button>

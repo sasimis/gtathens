@@ -281,8 +281,9 @@ const Pickups = ({ spawn = [0, 0] }) => {
 }
 
 // Deterministic layout near the spawn: 8 cash stacks, 3 ammo boxes, 2 medkits,
-// 1 pistol (close), 1 SMG (farther out). Points sit on walkable ways, never
-// inside buildings, never on the spawn tile.
+// plus a ROW OF EVERY GUN right in front of the spawn so the player can gear
+// up immediately. Points sit on walkable ways, never inside buildings, never
+// on the spawn tile.
 const buildLayout = (data, spawn) => {
   const segs = []
   for (const road of data.roads || []) {
@@ -301,6 +302,12 @@ const buildLayout = (data, spawn) => {
   }
   const polys = buildingPolygons(data)
   const out = []
+  const isInside = (x, z) => {
+    for (const poly of polys) {
+      if (pointInPolygon(x, z, poly)) return true
+    }
+    return false
+  }
   const tryPlace = (type, amount, seed, minD, maxD) => {
     for (let attempt = 0; attempt < 24; attempt += 1) {
       const seg = segs[Math.floor(hash01(seed * 7 + attempt * 13) * segs.length) % segs.length]
@@ -314,14 +321,7 @@ const buildLayout = (data, spawn) => {
       const side = hash01(seed * 5 + attempt) > 0.5 ? 1 : -1
       const x = px + ((bz - az) / len) * 1.3 * side
       const z = pz + (-(bx - ax) / len) * 1.3 * side
-      let inside = false
-      for (const poly of polys) {
-        if (pointInPolygon(x, z, poly)) {
-          inside = true
-          break
-        }
-      }
-      if (inside) continue
+      if (isInside(x, z)) continue
       out.push({ type, amount, x, z })
       return
     }
@@ -331,8 +331,55 @@ const buildLayout = (data, spawn) => {
   }
   for (let i = 0; i < 3; i += 1) tryPlace('ammo', i === 0 ? 36 : 24, 200 + i, 25, SPAWN_RADIUS)
   for (let i = 0; i < 2; i += 1) tryPlace('medkit', 0, 300 + i, 20, SPAWN_RADIUS)
-  tryPlace('pistol', 0, 400, 18, 120)
-  tryPlace('smg', 0, 401, 110, SPAWN_RADIUS)
+  // --- Spawn weapon row: one of EVERY gun, lined up on the ground in front
+  // of the player so the start area is a walk-across armoury. The player
+  // spawns with camYaw = PI, so pressing W walks toward -Z (see Player.jsx
+  // initialYaw + dirZ = iz*cos(PI) = -iz) — "in front" is -Z. The row runs
+  // east (+X) at 2.2 m spacing so each pickup stays outside the 1.6 m
+  // collect radius of its neighbours (walking the line grabs each gun
+  // individually, nearest-first).
+  // Nudged +1 m east so the first gun is not under the player's feet, and
+  // shifted forward until no slot lands inside a building footprint
+  // (falls back to raw offsets on open ground — the ground plane is the
+  // floor everywhere, so the row is always walkable).
+  {
+    const GUN_ROW = ['pistol', 'revolver', 'smg', 'rifle', 'shotgun', 'marksman']
+    const ROW_SPACING = 2.2
+    const ROW_AHEAD = 5
+    for (let shift = 0; shift <= 8; shift += 2) {
+      const ahead = ROW_AHEAD + shift
+      let blocked = false
+      for (let i = 0; i < GUN_ROW.length; i += 1) {
+        const x = spawn[0] + 1 + i * ROW_SPACING
+        const z = spawn[1] - ahead
+        if (isInside(x, z)) {
+          blocked = true
+          break
+        }
+      }
+      if (!blocked) {
+        for (let i = 0; i < GUN_ROW.length; i += 1) {
+          out.push({
+            type: GUN_ROW[i],
+            amount: 0,
+            x: spawn[0] + 1 + i * ROW_SPACING,
+            z: spawn[1] - ahead,
+          })
+        }
+        break
+      }
+      if (shift === 8) {
+        for (let i = 0; i < GUN_ROW.length; i += 1) {
+          out.push({
+            type: GUN_ROW[i],
+            amount: 0,
+            x: spawn[0] + 1 + i * ROW_SPACING,
+            z: spawn[1] - ahead,
+          })
+        }
+      }
+    }
+  }
   return out
 }
 
