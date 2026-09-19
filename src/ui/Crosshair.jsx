@@ -1,31 +1,56 @@
-// Crosshair: centered reticle overlay for on-foot weapon aiming.
-// DOM overlay (mounted by MenuRoot next to Hud/StreetHUD), visible only
-// during PLAYING when the player has a weapon equipped. Reads the same
-// store selectors the rest of the HUD uses — no store writes, no 3D scene
-// re-renders, minimal paint work by showing/hiding one element.
+// Crosshair: mouse-following reticle for on-foot weapon aiming.
+// DOM overlay (mounted by MenuRoot next to Hud) — writes the mouse position
+// into the shared aim module (no React re-render per mousemove: the div is
+// moved imperatively via transform). WeaponController reads the same NDC to
+// build its camera ray, so bullets land where the cursor points.
+// While PLAYING with a gun out the OS cursor is hidden (body class) and this
+// reticle IS the cursor.
 import React, { useEffect, useRef, useState } from 'react'
 import useGameStore, { Phase } from '../store/useGameStore'
+import { mouseAim, updateMouseAim } from '../lib/aim'
 
 const Crosshair = () => {
   const phase = useGameStore((s) => s.phase)
   const equipped = useGameStore((s) => s.equipped)
   const inventoryOpen = useGameStore((s) => s.inventoryOpen)
   const driving = useGameStore((s) => s.driving)
-  const reloading = useGameStore((s) => s.reloading)
   const weaponChangeLeft = useGameStore((s) => s.weaponChangeLeft)
-  const [visible, setVisible] = useState(false)
   const [hitJustNow, setHitJustNow] = useState(false)
   const swapRef = useRef(null)
+  const lastHitsRef = useRef(0)
 
+  const visible =
+    phase === Phase.PLAYING &&
+    driving === null &&
+    equipped && equipped !== 'fists' &&
+    inventoryOpen === false
+
+  // Track the mouse: cheap imperative move + shared NDC for the fire path.
   useEffect(() => {
-    const show =
-      phase === Phase.PLAYING &&
-      driving === null &&
-      equipped && equipped !== 'fists' &&
-      inventoryOpen === false
+    if (phase !== Phase.PLAYING) return undefined
+    const onMove = (e) => {
+      updateMouseAim(e.clientX, e.clientY)
+      const el = swapRef.current
+      if (el) el.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%, -50%)`
+    }
+    window.addEventListener('mousemove', onMove, { passive: true })
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [phase])
 
-    setVisible(show)
-  }, [phase, driving, equipped, inventoryOpen, reloading])
+  // Snap to the last known position on mount / weapon pickup (no jump from center).
+  useEffect(() => {
+    const el = swapRef.current
+    if (el && mouseAim.has) {
+      el.style.transform = `translate(${mouseAim.px}px, ${mouseAim.py}px) translate(-50%, -50%)`
+    }
+  }, [visible])
+
+  // Hide the OS cursor while the reticle is live (menus keep theirs).
+  useEffect(() => {
+    if (visible) document.body.classList.add('gt-hide-cursor')
+    else document.body.classList.remove('gt-hide-cursor')
+    return () => document.body.classList.remove('gt-hide-cursor')
+  }, [visible])
 
   useEffect(() => {
     const el = swapRef.current
@@ -49,8 +74,9 @@ const Crosshair = () => {
     const poll = () => {
       const trace =
         typeof window !== 'undefined' ? window.__gtathensShot : null
-      const hit = trace && trace.hits > 0
-      if (hit) {
+      const hits = (trace && trace.hits) || 0
+      if (hits > lastHitsRef.current) {
+        lastHitsRef.current = hits
         setHitJustNow(true)
         if (timeout) clearTimeout(timeout)
         timeout = setTimeout(() => setHitJustNow(false), 120)
@@ -67,7 +93,7 @@ const Crosshair = () => {
   if (!visible) return null
 
   return (
-    <div ref={swapRef} className="crosshair" data-hit={hitJustNow ? 'hit' : ''}>
+    <div ref={swapRef} className="crosshair crosshair-free" data-hit={hitJustNow ? 'hit' : ''}>
       <span className="crosshair-line crosshair-t" />
       <span className="crosshair-line crosshair-b" />
       <span className="crosshair-line crosshair-l" />

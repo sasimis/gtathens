@@ -73,7 +73,7 @@ const useGameStore = create(
       // Floating pickup toasts [{ id, text, kind }] + last hitmarker time.
       toasts: [],
       hitAt: 0,
-            killCount: 0,
+      killCount: 0,
       // Remaining cooldown (seconds) while switching weapons. While > 0 the
       // weapon controller suppresses fire/cycle input to keep the swap crisp.
       weaponChangeLeft: 0,
@@ -138,12 +138,9 @@ const useGameStore = create(
         const next =
           order[(i + (dir > 0 ? 1 : order.length - 1)) % order.length] ?? 'fists'
         // Short pause on weapon change so input doesn't race ahead of the
-        // animation / muzzle swap. weaponChangeLeft is drained by Player.jsx.
+        // animation / muzzle swap. weaponChangeLeft is drained by WeaponController.
         set({ equipped: next, weaponChangeLeft: 0.15 })
       },
-      // Remaining cooldown (seconds) while switching weapons. While > 0 the
-      // weapon controller suppresses fire/cycle input to keep the swap crisp.
-      weaponChangeLeft: 0,
       // Drag & drop reorder (SickInventory grid): move gun `fromId` onto `toId`.
       // Fists are implicit and never move.
       reorderWeapon: (fromId, toId) =>

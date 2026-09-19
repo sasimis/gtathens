@@ -6,6 +6,7 @@ import { useRapier } from '@react-three/rapier'
 import * as THREE from 'three'
 import useGameStore, { Phase } from '../store/useGameStore'
 import { WEAPONS, gunFX } from '../lib/weapons'
+import { mouseAim } from '../lib/aim'
 import { BTN, getGamepad, padValue, padEdge } from '../lib/gamepad'
 import { GunMount } from './Weapon'
 import { fireTracer, muzzleFlash, impactFlash } from './BulletFx'
@@ -54,8 +55,6 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
   const inventoryOpen = useGameStore((s) => s.inventoryOpen)
   const driving = useGameStore((s) => s.driving)
   const cycleWeapon = useGameStore((s) => s.cycleWeapon)
-  const weaponChangeLeft = useGameStore((s) => s.weaponChangeLeft)
-  const drainWeaponChange = useGameStore((s) => s.drainWeaponChange)
   const def = equipped && equipped !== 'fists' ? WEAPONS[equipped] : null
 
   // Mouse / pointer fire (LMB), gated on phase + inventory + driving.
@@ -80,7 +79,7 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       window.removeEventListener('pointerdown', down)
       window.removeEventListener('pointerup', up)
     }
-    }, [phase, inventoryOpen, driving])
+  }, [phase, inventoryOpen, driving])
 
   useFrame(() => {
     const st = useGameStore.getState()
@@ -91,8 +90,8 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
     }
 
     // --- Weapon-switch cooldown drain (seconds) ---
-    if (weaponChangeLeft > 0) {
-      drainWeaponChange(0.016)
+    if (st.weaponChangeLeft > 0) {
+      st.drainWeaponChange(0.016)
     }
 
     const eq = st.equipped
@@ -144,12 +143,12 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       fireState.reloadDur = wdef.melee ? 0.4 : 1.6
       audio.play(wdef.melee ? 'melee' : 'reload')
     }
-        fireState.reloadEdge = false
+    fireState.reloadEdge = false
 
     // --- fire / attack gating ---
     const want = fireState.wantFire
     // While swapping weapons, suppress fire but keep the cooldown ticking down.
-    if (weaponChangeLeft > 0) {
+    if (st.weaponChangeLeft > 0) {
       return
     }
     if (!want || !wrec || wrec.mag < 0) {
@@ -205,7 +204,12 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
     }
 
     // --- Gun Aiming & Firing ---
-    aimVec.set(0, 0, -1).applyQuaternion(camera.quaternion)
+    // Aim from the CURSOR: unproject the crosshair's NDC through the live
+    // camera (mouseAim is written by Crosshair.jsx on mousemove). No mouse
+    // yet (or headless smoke test) -> fall back to screen center, i.e. the
+    // old camera-forward ray, so X-key bursts still fly straight ahead.
+    aimVec.set(mouseAim.nx, mouseAim.ny, 0.5).unproject(camera).sub(camera.position).normalize()
+    if (aimVec.lengthSq() < 1e-8) aimVec.set(0, 0, -1).applyQuaternion(camera.quaternion)
     aimVec.y = Math.max(-0.85, Math.min(0.85, aimVec.y))
     aimVec.normalize()
     if (wdef.spread > 0) {

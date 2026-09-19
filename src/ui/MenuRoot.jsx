@@ -6,8 +6,8 @@ import MainMenu from './MainMenu'
 import SettingsMenu from './SettingsMenu'
 import PauseMenu from './PauseMenu'
 import Hud from './Hud'
-import StreetHUD from './StreetHUD'
 import Minimap from './Minimap'
+import Crosshair from './Crosshair'
 import { BTN, getGamepad, padEdge } from '../lib/gamepad'
 
 const MenuRoot = () => {
@@ -57,7 +57,6 @@ const MenuRoot = () => {
         {phase === Phase.PAUSED && <PauseMenu key="pause" />}
       </AnimatePresence>
       {phase === Phase.PLAYING && <Hud />}
-      {phase === Phase.PLAYING && <StreetHUD />}
       {phase === Phase.PLAYING && <Crosshair />}
       {phase === Phase.PLAYING && <Minimap />}
     </div>

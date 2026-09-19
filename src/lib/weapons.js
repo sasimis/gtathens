@@ -27,7 +27,7 @@ export const WEAPONS = {
     auto: false,
     pickupAmmo: 24,
   },
-    smg: {
+  smg: {
     id: 'smg',
     name: 'SMG',
     melee: false,

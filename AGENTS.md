@@ -21,6 +21,7 @@ World units are meters (1 unit = 1 m); north = -Z, east = +X
 | Area | File | Notes |
 |---|---|---|
 | Boot / canvas / ground | `workspace/src/App.jsx` | Canvas DPR + fog by quality; ground top face exactly y=0. `H` stats strip, `G` collider wireframes (`<Physics debug>`). |
+| Pavement | `workspace/src/components/Ground.jsx` | One 4000 m box, top face exactly y=0 (so it IS the collider). Texture = the EXACT reference photo `public/textures/tiles.jpg` (1600², a 4×4 grid of faceted off-white pillow slabs = 2 m slabs at `TILE_M = 8`, repeat 500×500, sRGB + aniso 8). Loaded imperatively (not `useTexture`) so a missing file degrades to a flat grey plaza instead of a black canvas. **Used as-is — never re-bake/recreate it procedurally; swapping the plaza = replacing that one image.** |
 | Store | `workspace/src/store/useGameStore.js` | `Phase` machine, `spawn`, `character`, `driving` (car index or null), `nearCar`, `respawn` (exit-car handoff), `gameTime` (~4 Hz writes), `camView` 0/1/2 + `setCamView`/`cycleCamView`, `CAM_VIEWS` presets. Persisted: settings only (`gtathens-v2`). |
 | On-foot player | `workspace/src/components/Player.jsx` | Capsule (half 0.6 + r 0.35 = 1.9 m, center y 0.95, model feet at collider bottom). **W = camera-forward, S = back, A/D = strafe + slight turn** (faces move dir, strafe leans ≤ ~35°). `CarEntrance` polls `useParkingSpots` every 100 ms with hysteresis (enter 3.4 m, keep 4.2 m) → stable `nearCar` / F prompt + re-entry. |
 | Camera | `workspace/src/components/FollowCamera.jsx` | Fixed presets only (Near 5.5 m / Std 8.5 m / Far 12.5 m). Keys **1/2/3** jump, **V** cycles, vertical drag = pitch trim, wheel ignored. `CameraRig` raycasts head→goal (3-arg castRay, 0.4 m self-guard, min 1.2 m shoulder-cam, floor ≥ 0.7 m). |
@@ -280,6 +281,17 @@ World units are meters (1 unit = 1 m); north = -Z, east = +X
 - **Peds sit in GROUP_PLAYER** (shared filter mask), so a ray that excludes the
   player's own group would also skip every ped — one more reason to check the
   ray path before "peds are invulnerable" reports (see the aim gotcha above).
+- **The pavement is a PHOTO, not a bake.** The plaza texture
+  (`public/textures/tiles.jpg`) is the reference image the city's look was
+  approved from, used byte-for-byte (verified by SHA-256 against the source
+  file). An earlier attempt procedurally *recreated* the pattern into
+  `public/textures/kaykit-pavement.png` via `scripts/bake-pavement.mjs`; both
+  are deleted — do not reintroduce a generator, a resample, or a "cleaner"
+  upscaled variant. `Ground.jsx` maps the photo through `TILE_M = 8` (one
+  image = 8 m = the 4×4 slabs at 2 m each) and `WORLD_M / TILE_M` = 500×500
+  repeats. The smoke report's ground probe prints `tex` + `texelsPerM`, so the
+  load is provable without eyes: `"tex":"1600x1600","texelsPerM":200` = the
+  real photo (the old bake read 1024×1024 / 128).
 
 ## Running the game headlessly (smoke test)
 

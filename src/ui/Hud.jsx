@@ -1,18 +1,15 @@
 import React from 'react'
 import useGameStore from '../store/useGameStore'
-import { CHARACTERS } from '../components/Protagonist'
 
-// Minimal HUD: character chip + GTA clock + the F-to-enter prompt.
-// (Brand chip and camera buttons were removed — camera views are on
-// keys 1/2/3 and V, see FollowCamera OrbitInput.)
+// Minimal HUD: ONE combined clock + cash chip (top-right) + the F prompt.
+// Everything else (name, HP, kills, weapon line, street) was removed —
+// the minimap + this chip are the whole HUD. Damage chip stays while driving.
 const Hud = () => {
   const driving = useGameStore((s) => s.driving)
   const nearCar = useGameStore((s) => s.nearCar)
-  const character = useGameStore((s) => s.character)
   const gameTime = useGameStore((s) => s.gameTime ?? 8)
+  const money = useGameStore((s) => s.money ?? 0)
   const carDamage = useGameStore((s) => s.carDamage ?? 0)
-  const weaponChangeLeft = useGameStore((s) => s.weaponChangeLeft)
-  const char = CHARACTERS[Math.abs(character) % CHARACTERS.length] ?? CHARACTERS[0]
 
   const hours = Math.floor(gameTime)
   const minutes = Math.floor((gameTime % 1) * 60)
@@ -20,8 +17,11 @@ const Hud = () => {
 
   return (
     <>
-      <div className="hud-chip hud-char">{char.name}</div>
-      <div className="hud-chip hud-time hud-clock">{timeString}</div>
+      <div className="hud-chip hud-status">
+        <span className="hud-status-time">{timeString}</span>
+        <span className="hud-status-sep" />
+        <span className="hud-status-cash">${money}</span>
+      </div>
 
       {/* Crash damage of the car being driven (turns red near 60%+) */}
       {driving !== null && carDamage > 0.005 && (
@@ -39,10 +39,6 @@ const Hud = () => {
         </div>
       )}
 
-      {/* Weapon-switch cooldown flash (brief dark overlay over the reticle) */}
-      {driving === null && weaponChangeLeft > 0 && (
-        <div className="hud-weapon-swap" />
-      )}
     </>
   )
 }

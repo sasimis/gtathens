@@ -1,11 +1,9 @@
-// Player inventory + economy HUD: cash, health bar, owned guns, toasts.
-// Tab / I toggles the GTA:SA-style weapons panel; the compact HUD cash /
-// gun line at the bottom always shows while PLAYING.
+// Player inventory overlay: pickup toasts, hit feedback, reload bar and the
+// GTA:SA-style weapon picker panel. Persistent HUD chips (clock + cash) live
+// in Hud.jsx — this overlay keeps only transient feedback + the picker.
 import React, { useEffect, useState } from 'react'
 import useGameStore, { Phase } from '../store/useGameStore'
 import { WEAPONS, WEAPON_ORDER } from '../lib/weapons'
-
-const barColor = (hp) => (hp > 55 ? '#57d977' : hp > 25 ? '#f5b800' : '#ff5a4e')
 
 // GTA: San Andreas weapon wheel order (slots left -> right, top -> bottom).
 // Fists first, then everything the player actually owns.
@@ -24,17 +22,16 @@ const Inventory = () => {
   const equipped = useGameStore((s) => s.equipped)
   const open = useGameStore((s) => s.inventoryOpen)
   const toasts = useGameStore((s) => s.toasts)
-  const hitAt = useGameStore((s) => s.hitAt ?? 0)
-  const kills = useGameStore((s) => s.killCount ?? 0)
-  const damageFlashAt = useGameStore((s) => s.damageFlashAt ?? 0)
-  const toggle = useGameStore((s) => s.toggleInventory)
   const close = useGameStore((s) => s.closeInventory)
   const equip = useGameStore((s) => s.equipWeapon)
   // Keyboard cursor inside the SA grid (Q/E or arrows move, F/E equip).
   const [cursor, setCursor] = useState(0)
+  // HUD chips (cash / HP / weapon line) now live in Hud.jsx — this overlay
+  // keeps only toasts, the reload bar and the SA picker panel.
+  const barColor = (hp) => (hp > 55 ? '#57d977' : hp > 25 ? '#f5b800' : '#ff5a4e')
 
   // NOTE: Tab / I are owned by SickInventory (wheel on hold-Tab, dnd-kit grid
-  // on I). This component keeps only the always-on HUD chips + toasts.
+  // on I). This component keeps only transient feedback + the picker.
   useEffect(() => {
     if (phase !== Phase.PLAYING && open) close()
   }, [phase, open, close])
@@ -73,27 +70,6 @@ const Inventory = () => {
 
   return (
     <>
-      {Date.now() - damageFlashAt < 350 && <div className="dmg-flash" />}
-      {Date.now() - hitAt < 250 && <div className="hitmarker">✕</div>}
-      <div className="hud-chip hud-money">${money}</div>
-      <div className="hud-chip hud-hp">
-        <span className="hp-track">
-          <span className="hp-fill" style={{ width: `${health}%`, background: barColor(health) }} />
-        </span>
-        {health}
-      </div>
-      {kills > 0 && <div className="hud-chip hud-kills">{kills} KO</div>}
-      <div className="hud-weapons">
-        <span className={`hud-gun${equipped === 'fists' ? ' on' : ''}`}>Fists</span>
-        {weapons.map((w) => {
-          const def = WEAPONS[w.id]
-          return (
-            <span key={w.id} className={`hud-gun${equipped === w.id ? ' on' : ''}`}>
-              {def ? def.name : w.id} {w.mag}/{w.reserve}
-            </span>
-          )
-        })}
-      </div>
       <div className="hud-toasts">
         {toasts.map((t) => (
           <div key={t.id} className={`toast toast-${t.kind}`}>{t.text}</div>

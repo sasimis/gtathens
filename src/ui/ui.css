@@ -720,16 +720,51 @@ kbd {
   box-sizing: border-box;
 }
 
-/* Current character name chip (top-right corner) */
+/* Current character name chip (top-right corner, legacy — Hud no longer renders it) */
 .hud-char {
+  display: none;
+}
+
+/* Combined clock + cash chip (top-right): the whole HUD besides the minimap. */
+.hud-status {
   left: auto;
   right: 18px;
   top: 18px;
   height: auto;
   max-height: max-content;
-  background: rgba(13, 20, 32, 0.78);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  font-variant-numeric: tabular-nums;
+  font-style: normal;
+  letter-spacing: 1px;
+  background: rgba(10, 15, 24, 0.82);
   color: var(--text);
-  border: 1px solid var(--accent);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-left: 3px solid var(--accent);
+  backdrop-filter: blur(8px);
+}
+
+.hud-status-time {
+  font-family: 'Arial Black', 'Impact', sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: #fff;
+}
+
+.hud-status-sep {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.hud-status-cash {
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #7dff9a;
 }
 
 /* "Press F to enter vehicle" prompt - centers above the player */
@@ -957,24 +992,16 @@ kbd {
   min-width: 70px;
 }
 
-/* GTA-style clock (top-right, under char name): HH:MM, white on black */
+/* GTA-style clock (legacy — replaced by the combined .hud-status chip) */
 .hud-clock {
-  left: auto;
-  right: 18px;
-  top: 64px;
-  height: auto;
-  max-height: max-content;
-  background: rgba(0, 0, 0, 0.72);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.65);
-  border-radius: 4px;
-  font-family: 'Arial Black', 'Impact', sans-serif;
-  font-style: normal;
-  font-size: 22px;
-  letter-spacing: 3px;
-  text-shadow: 2px 2px 0 #000;
-  min-width: 96px;
-  text-align: center;
+  display: none;
+}
+
+/* Hide the OS cursor while the mouse crosshair is live (gun out, on foot).
+   Menus / panels never add this class, so their cursor stays normal. */
+body.gt-hide-cursor,
+body.gt-hide-cursor canvas {
+  cursor: none;
 }
 
 /* ===== Invisible-but-blocking DOM overlays ==============================
@@ -1182,25 +1209,12 @@ kbd {
   color: var(--text-dim);
 }
 
-/* ===== Inventory / economy HUD ===== */
-.hud-money {
-  left: 18px;
-  top: 64px;
-  background: rgba(0, 0, 0, 0.72);
-  color: #7dff9a;
-  border: 1px solid rgba(125, 255, 154, 0.5);
-  font-variant-numeric: tabular-nums;
-  min-width: 96px;
-  text-align: center;
-}
-.hud-hp {
-  left: 18px;
-  top: 110px;
-  background: rgba(0, 0, 0, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* ===== Inventory / economy HUD (legacy chips — Hud.jsx now owns the only chip) ===== */
+.hud-money,
+.hud-hp,
+.hud-kills,
+.hud-weapons {
+  display: none;
 }
 .hp-track {
   display: inline-block;
@@ -1211,21 +1225,6 @@ kbd {
   overflow: hidden;
 }
 .hp-fill { display: block; height: 100%; border-radius: 5px; }
-.hud-kills {
-  left: 18px;
-  top: 156px;
-  background: rgba(0, 0, 0, 0.72);
-  color: #ffd75e;
-  border: 1px solid rgba(255, 215, 94, 0.5);
-}
-.hud-weapons {
-  position: absolute;
-  left: 18px;
-  bottom: 64px;
-  display: flex;
-  gap: 8px;
-  pointer-events: none;
-}
 .hud-gun {
   padding: 5px 10px;
   font-size: 12px;
@@ -1504,15 +1503,21 @@ kbd {
 /* ===== Crosshair ===== */
 .crosshair {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  top: 0;
+  left: 0;
   width: 28px;
   height: 28px;
   pointer-events: none;
   z-index: 20;
   opacity: 1;
   transition: opacity 0.08s ease;
+}
+
+/* Centered fallback (pre-mouse / headless): still screen-center. */
+.crosshair:not(.crosshair-free) {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .crosshair-dot {
@@ -1559,19 +1564,4 @@ kbd {
 .crosshair[data-hit="hit"] .crosshair-r {
   background: rgba(255, 90, 78, 0.95);
   box-shadow: 0 0 6px rgba(255, 90, 78, 0.6);
-}
-
-/* Weapon-switch cooldown flash (brief dark screen overlay) */
-.hud-weapon-swap {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  pointer-events: none;
-  z-index: 18;
-  opacity: 1;
-  animation: weapon-swap-out 0.18s ease-out forwards;
-}
-
-@keyframes weapon-swap-out {
-  to { opacity: 0; }
 }
