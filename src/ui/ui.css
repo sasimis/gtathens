@@ -1565,3 +1565,251 @@ body.gt-hide-cursor canvas {
   background: rgba(255, 90, 78, 0.95);
   box-shadow: 0 0 6px rgba(255, 90, 78, 0.6);
 }
+
+/* ===== Radio Station Menu & HUD Banner ===== */
+.radio-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 10, 18, 0.72);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+
+.radio-container {
+  width: min(540px, 92vw);
+  max-height: 85vh;
+  padding: 24px 26px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.radio-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.radio-title-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.radio-title {
+  font-family: 'Arial Black', 'Impact', sans-serif;
+  font-size: 18px;
+  letter-spacing: 2.5px;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.radio-hint {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.radio-active-chip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+}
+
+.active-icon {
+  font-size: 26px;
+}
+
+.active-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.active-name {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #fff;
+}
+
+.active-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.radio-status-tag {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+
+.status-playing {
+  background: rgba(76, 175, 80, 0.2);
+  color: #7dff9a;
+  border: 1px solid rgba(76, 175, 80, 0.4);
+}
+
+.status-connecting {
+  background: rgba(245, 184, 0, 0.2);
+  color: #ffd028;
+  border: 1px solid rgba(245, 184, 0, 0.4);
+}
+
+.status-error {
+  background: rgba(255, 90, 78, 0.2);
+  color: #ff5a4e;
+  border: 1px solid rgba(255, 90, 78, 0.4);
+}
+
+.status-off {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.radio-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.radio-station-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--text);
+  text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+}
+
+.radio-station-card:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.radio-station-card.selected {
+  background: rgba(245, 184, 0, 0.18);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(245, 184, 0, 0.2);
+}
+
+.card-icon {
+  font-size: 22px;
+}
+
+.card-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.card-name {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #fff;
+}
+
+.radio-station-card.selected .card-name {
+  color: var(--accent);
+}
+
+.card-freq {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.card-indicator {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.radio-footer {
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding-top: 6px;
+}
+
+/* GTA-style Radio Banner on top center */
+.radio-hud-banner {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px;
+  background: rgba(10, 15, 24, 0.88);
+  border: 1px solid var(--accent);
+  border-radius: 24px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  animation: radio-banner-pop 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes radio-banner-pop {
+  0% { opacity: 0; transform: translate(-50%, -10px) scale(0.92); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+.radio-hud-icon {
+  font-size: 20px;
+}
+
+.radio-hud-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.radio-hud-title {
+  font-family: 'Arial Black', 'Impact', sans-serif;
+  font-size: 15px;
+  letter-spacing: 1.5px;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.radio-hud-sub {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.5px;
+}
+
+.hud-radio-hint {
+  top: 80%;
+}

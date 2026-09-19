@@ -112,6 +112,7 @@ const KeyboardDriving = () => (
     <PromptRow icon={<KeyIcon>A</KeyIcon>} action="Steer Left" />
     <PromptRow icon={<KeyIcon>D</KeyIcon>} action="Steer Right" />
     <PromptRow icon={<KeyIcon wide>Space</KeyIcon>} action="Brake" />
+    <PromptRow icon={<KeyIcon>M</KeyIcon>} action="Radio Stations" />
     <PromptRow icon={<KeyIcon>F</KeyIcon>} action="Exit Vehicle" />
     <PromptRow icon={<KeyIcon>Esc</KeyIcon>} action="Pause Menu" />
   </div>
