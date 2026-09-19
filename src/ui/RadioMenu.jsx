@@ -4,6 +4,7 @@ import useGameStore from '../store/useGameStore'
 import { RADIO_STATIONS, radioAudio } from '../lib/radio'
 import { StationLogo } from '../components/RadioLogos'
 
+// Greek radio station menu with animations and status indicators
 const RadioMenu = () => {
   const radioOpen = useGameStore((s) => s.radioOpen)
   const radioStation = useGameStore((s) => s.radioStation)
@@ -95,62 +96,111 @@ const RadioMenu = () => {
       >
         <motion.div
           className="radio-container"
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.9, opacity: 0 }}
-          transition={{ type: 'spring', damping: 22, stiffness: 300 }}
+          
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.9, opacity: 0, y: -10 }}
+          transition={{ type: 'spring', damping: 20, stiffness: 300 }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Header with active station info */}
           <div className="radio-header">
             <div className="radio-title-wrap">
-              <span className="radio-title">GREEK RADIO STATIONS</span>
-              <span className="radio-hint">PRESS [M] OR ESC TO CLOSE</span>
+              <span className="radio-title">
+                <span className="radio-title-accent">RADIO</span> ΣΤΑΘΜΕΣ
+              </span>
+              <span className="radio-hint">Πάτησε [M] ή ESC για κλείσιμο</span>
             </div>
-            <div className="radio-active-chip">
-              <span className="active-icon">
-                <StationLogo id={activeStation.id} size={36} />
+
+                      <motion.div
+              className="radio-active-chip"
+              layout
+              transition={{ type: 'spring', damping: 25, stiffness: 250 }}
+            >
+              <span className="active-logo">
+                <StationLogo id={activeStation.id} size={40} />
               </span>
               <div className="active-meta">
                 <div className="active-name">{activeStation.name}</div>
                 <div className="active-sub">
-                  <span>{activeStation.freq}</span> • <span>{activeStation.genre}</span>
+                  <span>{activeStation.freq}</span>
+                  {' • '}
+                  <span>{activeStation.genre}</span>
                 </div>
               </div>
+
+              {/* Status tag with pulse animation when live */}
               <div className={`radio-status-tag status-${status.toLowerCase()}`}>
-                {status === 'PLAYING' && '🔴 LIVE'}
-                {status === 'CONNECTING' && '⏳ CONNECTING...'}
-                {status === 'ERROR' && '⚠️ OFFLINE'}
-                {status === 'OFF' && 'OFF'}
+                {status === 'PLAYING' && (
+                  <motion.span
+                    className="status-pulse"
+                    animate={{ opacity: [1, 0.4, 1] }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+                  />
+                )}
+                <span className="status-text">
+                  {status === 'PLAYING' && '🔴 LIVE'}
+                  {status === 'CONNECTING' && '⏳ CONNECTING'}
+                  {status === 'ERROR' && '⚠ OFFLINE'}
+                  {status === 'OFF' && 'OFF'}
+                </span>
               </div>
-            </div>
+            </motion.div>
           </div>
 
+          {/* Station grid */}
           <div className="radio-grid">
             {RADIO_STATIONS.map((st, idx) => {
               const isSelected = idx === radioStation
               return (
-                <button
+                <motion.button
                   key={st.id}
                   className={`radio-station-card ${isSelected ? 'selected' : ''}`}
                   onClick={() => setRadioStation(idx)}
+                  whileHover={{ scale: 1.02, x: 4 }}
+                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                 >
                   <span className="card-icon">
-                    <StationLogo id={st.id} size={30} />
+                    <StationLogo id={st.id} size={28} />
                   </span>
                   <div className="card-info">
                     <span className="card-name">{st.name}</span>
                     <span className="card-freq">{st.freq} • {st.genre}</span>
                   </div>
-                  {isSelected && (
-                    <span className="card-indicator">◄</span>
+                  {isSelected && status === 'PLAYING' && (
+                    <motion.span
+                      className="card-indicator playing"
+                      initial={{ scale: 0 }}
+                      animate={{ scale: [1, 0.8, 1] }}
+                      transition={{ duration: 0.5 }}
+                    >
+                      ■
+                    </motion.span>
                   )}
-                </button>
+                  {isSelected && status !== 'PLAYING' && status !== 'OFF' && (
+                    <span className="card-indicator connecting">⏳</span>
+                  )}
+                  {isSelected && (
+                    <motion.div
+                      className="selected-glow"
+                      layoutId="selectedGlow"
+                      initial={false}
+                    />
+                  )}
+                </motion.button>
               )
             })}
           </div>
 
+          {/* Footer with instructions */}
           <div className="radio-footer">
-            <span>Scroll wheel or Arrow keys to change station</span>
+            <div className="radio-footer-grid">
+              <span className="radio-shortcut">
+                <kbd>↑↓</kbd> or <kbd>W/S</kbd> next/prev
+              </span>
+              <span className="radio-shortcut">
+                <kbd>1-9</kbd> quick select
+              </span>
+            </div>
           </div>
         </motion.div>
       </motion.div>
