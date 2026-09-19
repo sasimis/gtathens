@@ -16,6 +16,7 @@ import AudioSystem from './components/AudioSystem'
 import Pickups from './components/Pickups'
 import Inventory from './ui/Inventory'
 import SickInventory from './ui/SickInventory'
+import RadioMenu from './ui/RadioMenu'
 import useGameStore, { Phase } from './store/useGameStore'
 import './ui/ui.css'
 
@@ -204,9 +205,11 @@ const App = () => {
       <InputPrompts />
       <Inventory />
       <SickInventory />
+      <RadioMenu />
     </div>
   )
 }
 
 export default App
+
 

@@ -62,9 +62,12 @@ const useGameStore = create(
       // Transient — never persisted; CarDriver resyncs it change-gated.
       carDamage: 0,
 
+      // Transient radio UI state (never persisted)
+      radioOpen: false,
+      radioStation: 0,
+      radioToast: null,
       // --- Economy / inventory (session-only, never persisted) -------------
       money: 0,
-      health: 100,
       damageFlashAt: 0,
       // Owned guns: [{ id, mag, reserve }]. Fists are implicit and always
       // available (WEAPON_ORDER[0]) — they are never stored here.
