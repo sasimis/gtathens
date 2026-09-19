@@ -183,9 +183,9 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
 
     let grip = tuning.grip
     if (isBraking) {
-      grip = 0.40
+      grip = 0.60
     } else if (Math.abs(sideV) > 2.0 && planarSpeed > 5.0) {
-      grip = 0.65
+      grip = 0.68
     }
     const lateralDecay = 1 - Math.pow(1 - grip, delta * 30)
     let newSideV = sideV * (1 - lateralDecay)
@@ -199,13 +199,12 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     rb.setLinvel({ x: newVx, y: v.y, z: newVz }, true)
 
     const steerRaw = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0) + gpS
-    const isReversing = fwdV < -0.2 || (wantB && !wantF && fwdV < 0.2)
-    const steer = isReversing ? -steerRaw : steerRaw
+    const steer = steerRaw
 
-    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 12))
+    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
 
     const absSpeed = Math.abs(fwdV)
-    let turnFactor = Math.max(0.3, Math.min(1, absSpeed / 5))
+    let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
     if (absSpeed > 16) {
       turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
     }
