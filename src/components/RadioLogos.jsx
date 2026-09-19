@@ -42,12 +42,68 @@ export const Music892Logo = ({ size = 28 }) => (
   </svg>
 )
 
+export const Red963Logo = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+    <rect width="40" height="40" rx="8" fill="#c53030" />
+    <text x="20" y="19" textAnchor="middle" fill="#ffffff" fontSize="12" fontWeight="900" fontFamily="impact, sans-serif">RED</text>
+    <text x="20" y="29" textAnchor="middle" fill="#feb2b2" fontSize="9" fontWeight="900" fontFamily="impact, sans-serif">96.3</text>
+  </svg>
+)
+
+export const EnLefkoLogo = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+    <rect width="40" height="40" rx="8" fill="#2b6cb0" />
+    <text x="20" y="18" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="900" fontFamily="sans-serif">EN LEFKO</text>
+    <text x="20" y="28" textAnchor="middle" fill="#90cdf4" fontSize="9" fontWeight="900" fontFamily="sans-serif">87.7</text>
+  </svg>
+)
+
+export const MelodiaLogo = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+    <rect width="40" height="40" rx="8" fill="#b7791f" />
+    <text x="20" y="18" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="900" fontFamily="serif">ΜΕΛΩΔΙΑ</text>
+    <text x="20" y="28" textAnchor="middle" fill="#fefcbf" fontSize="9" fontWeight="900" fontFamily="sans-serif">99.2</text>
+  </svg>
+)
+
+export const RythmosLogo = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+    <rect width="40" height="40" rx="8" fill="#dd6b20" />
+    <text x="20" y="18" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="900" fontFamily="impact, sans-serif">RYTHMOS</text>
+    <text x="20" y="28" textAnchor="middle" fill="#feebc8" fontSize="9" fontWeight="900" fontFamily="impact, sans-serif">94.9</text>
+  </svg>
+)
+
 export const Menta88Logo = ({ size = 28 }) => (
   <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
     <rect width="40" height="40" rx="8" fill="#006644" />
     <circle cx="20" cy="20" r="13" stroke="#36b37e" strokeWidth="2" />
     <text x="20" y="19" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="900" fontFamily="sans-serif">MENTA</text>
     <text x="20" y="27" textAnchor="middle" fill="#79f2c0" fontSize="8" fontWeight="900" fontFamily="sans-serif">88 FM</text>
+  </svg>
+)
+
+export const RealFmLogo = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+    <rect width="40" height="40" rx="8" fill="#2c5282" />
+    <text x="20" y="18" textAnchor="middle" fill="#ffffff" fontSize="9" fontWeight="900" fontFamily="impact, sans-serif">REAL FM</text>
+    <text x="20" y="28" textAnchor="middle" fill="#e2e8f0" fontSize="9" fontWeight="900" fontFamily="impact, sans-serif">97.8</text>
+  </svg>
+)
+
+export const PepperLogo = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+    <rect width="40" height="40" rx="8" fill="#6b46c1" />
+    <text x="20" y="18" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="900" fontFamily="sans-serif">PEPPER</text>
+    <text x="20" y="28" textAnchor="middle" fill="#e9d8fd" fontSize="9" fontWeight="900" fontFamily="sans-serif">96.6</text>
+  </svg>
+)
+
+export const DiesiLogo = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+    <rect width="40" height="40" rx="8" fill="#d69e2e" />
+    <text x="20" y="18" textAnchor="middle" fill="#1a202c" fontSize="8" fontWeight="900" fontFamily="sans-serif">ΔΙΕΣΗ</text>
+    <text x="20" y="28" textAnchor="middle" fill="#ffffff" fontSize="9" fontWeight="900" fontFamily="sans-serif">101.3</text>
   </svg>
 )
 
@@ -67,27 +123,11 @@ export const AthensRockLogo = ({ size = 28 }) => (
   </svg>
 )
 
-export const KosmosJazzLogo = ({ size = 28 }) => (
-  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
-    <rect width="40" height="40" rx="8" fill="#403294" />
-    <text x="20" y="18" textAnchor="middle" fill="#6554c0" fontSize="7" fontWeight="900" fontFamily="sans-serif">KOSMOS</text>
-    <text x="20" y="29" textAnchor="middle" fill="#ffab00" fontSize="11" fontWeight="900" fontFamily="sans-serif">JAZZ</text>
-  </svg>
-)
-
 export const Focus1036Logo = ({ size = 28 }) => (
   <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
     <rect width="40" height="40" rx="8" fill="#ff8b00" />
     <text x="20" y="18" textAnchor="middle" fill="#172b4d" fontSize="9" fontWeight="900" fontFamily="impact, sans-serif">FOCUS</text>
     <text x="20" y="28" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="900" fontFamily="impact, sans-serif">103.6 FM</text>
-  </svg>
-)
-
-export const EraProtoLogo = ({ size = 28 }) => (
-  <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
-    <rect width="40" height="40" rx="8" fill="#de350b" />
-    <text x="20" y="18" textAnchor="middle" fill="#ffffff" fontSize="9" fontWeight="900" fontFamily="sans-serif">ΕΡΤ</text>
-    <text x="20" y="27" textAnchor="middle" fill="#ffab00" fontSize="8" fontWeight="900" fontFamily="sans-serif">ΠΡΩΤΟ</text>
   </svg>
 )
 
@@ -97,12 +137,17 @@ export const STATION_LOGOS = {
   'era-deftero': EraDefteroLogo,
   'era-kosmos': EraKosmosLogo,
   'music892': Music892Logo,
+  'red963': Red963Logo,
+  'enlefko877': EnLefkoLogo,
+  'melodia992': MelodiaLogo,
+  'rythmos949': RythmosLogo,
   'menta88': Menta88Logo,
-  'metropolis955': Metropolis955Logo,
+  'realfm978': RealFmLogo,
+  'pepper966': PepperLogo,
+  'diesi1013': DiesiLogo,
   'athensrock969': AthensRockLogo,
-  'kosmosjazz': KosmosJazzLogo,
+  'metropolis955': Metropolis955Logo,
   'focus1036': Focus1036Logo,
-  'era-proto': EraProtoLogo,
 }
 
 export const StationLogo = ({ id, size = 32 }) => {

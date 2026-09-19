@@ -1566,200 +1566,163 @@ body.gt-hide-cursor canvas {
   box-shadow: 0 0 6px rgba(255, 90, 78, 0.6);
 }
 
-/* ===== Radio Station Menu & HUD Banner ===== */
+/* ===== GTA Colored Radio Station Wheel & HUD Banner ===== */
 .radio-screen {
   position: fixed;
   inset: 0;
   z-index: 150;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(6, 10, 18, 0.72);
-  backdrop-filter: blur(8px);
+  background: radial-gradient(circle at center, rgba(12, 18, 28, 0.65) 0%, rgba(4, 7, 12, 0.88) 100%);
+  backdrop-filter: blur(10px);
   pointer-events: auto;
+  overflow: hidden;
 }
 
-.radio-container {
-  width: min(540px, 92vw);
-  max-height: 85vh;
-  padding: 24px 26px;
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: 16px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.75);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.radio-header {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.radio-title-wrap {
+.radio-wheel-wrapper {
+  position: relative;
+  width: 520px;
+  height: 520px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  pointer-events: auto;
+  user-select: none;
+  overflow: hidden;
 }
 
-.radio-title {
+.radio-wheel-svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  filter: drop-shadow(0 12px 36px rgba(0, 0, 0, 0.65));
+}
+
+.wheel-logos-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.wheel-logo-item {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+
+.wheel-logo-item.selected {
+  z-index: 5;
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.8));
+}
+
+.wheel-center-hub {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+  z-index: 10;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.hub-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.hub-title {
   font-family: 'Arial Black', 'Impact', sans-serif;
-  font-size: 18px;
-  letter-spacing: 2.5px;
-  color: var(--accent);
+  font-size: 17px;
+  letter-spacing: 1.5px;
+  color: #ffffff;
   text-transform: uppercase;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  margin-bottom: 2px;
+  line-height: 1.1;
 }
 
-.radio-hint {
+.hub-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 1px;
   color: var(--text-dim);
+  margin-bottom: 6px;
 }
 
-.radio-active-chip {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
+.hub-freq {
+  color: var(--accent);
 }
 
-.active-icon {
-  font-size: 26px;
+.hub-dot {
+  opacity: 0.5;
 }
 
-.active-meta {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.hub-genre {
+  color: #e2e8f0;
 }
 
-.active-name {
-  font-size: 16px;
+.hub-status {
+  padding: 3px 10px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 1px;
-  color: #fff;
-}
-
-.active-sub {
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.radio-status-tag {
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  border-radius: 6px;
+  border-radius: 12px;
   text-transform: uppercase;
 }
 
-.status-playing {
-  background: rgba(76, 175, 80, 0.2);
+.hub-status.status-playing {
+  background: rgba(76, 175, 80, 0.25);
   color: #7dff9a;
-  border: 1px solid rgba(76, 175, 80, 0.4);
+  border: 1px solid rgba(76, 175, 80, 0.5);
 }
 
-.status-connecting {
-  background: rgba(245, 184, 0, 0.2);
+.hub-status.status-connecting {
+  background: rgba(245, 184, 0, 0.25);
   color: #ffd028;
-  border: 1px solid rgba(245, 184, 0, 0.4);
+  border: 1px solid rgba(245, 184, 0, 0.5);
 }
 
-.status-error {
-  background: rgba(255, 90, 78, 0.2);
+.hub-status.status-error {
+  background: rgba(255, 90, 78, 0.25);
   color: #ff5a4e;
-  border: 1px solid rgba(255, 90, 78, 0.4);
+  border: 1px solid rgba(255, 90, 78, 0.5);
 }
 
-.status-off {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-dim);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.radio-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 340px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.radio-station-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  cursor: pointer;
-  color: var(--text);
-  text-align: left;
-  transition: background 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
-}
-
-.radio-station-card:hover {
+.hub-status.status-off {
   background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.25);
-}
-
-.radio-station-card.selected {
-  background: rgba(245, 184, 0, 0.18);
-  border-color: var(--accent);
-  box-shadow: 0 0 12px rgba(245, 184, 0, 0.2);
-}
-
-.card-icon {
-  font-size: 22px;
-}
-
-.card-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.card-name {
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.8px;
-  color: #fff;
-}
-
-.radio-station-card.selected .card-name {
-  color: var(--accent);
-}
-
-.card-freq {
-  font-size: 12px;
   color: var(--text-dim);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-.card-indicator {
+.radio-wheel-footer {
+  margin-top: 24px;
+  padding: 8px 18px;
+  background: rgba(10, 15, 24, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
   font-size: 12px;
-  color: var(--accent);
-}
-
-.radio-footer {
-  text-align: center;
-  font-size: 11px;
+  font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
   color: var(--text-dim);
-  padding-top: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
 /* GTA-style Radio Banner on top center */

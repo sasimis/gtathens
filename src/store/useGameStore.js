@@ -263,7 +263,8 @@ if (typeof window !== 'undefined') {
     const w = s.weapons.find((x) => x.id === s.equipped)
     storeSnap.mag = w ? w.mag : 0
   })
-  window.__gtathensStore = storeSnap
+  window.__gtathensStore = useGameStore
+  window.__gtathensStoreSnap = storeSnap
   // QA seam (scripts/smoke.mjs): hand the player a gun through the SAME action
   // a weapon pickup uses, so the headless shoot test exercises the real firing
   // path instead of faking it. Never called by game code.
