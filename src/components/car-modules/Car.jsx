@@ -17,7 +17,7 @@ export const Car = React.memo(function Car({
 }) {
   const key = normalizeId(id)
   const rawHalf = HALF[key]
-  const half = React.useMemo(() => [rawHalf[0] + 0.05, rawHalf[1] + 0.05, rawHalf[2] + 0.05], [rawHalf])
+  const half = React.useMemo(() => [rawHalf[0] + 0.10, rawHalf[1] + 0.08, rawHalf[2] + 0.10], [rawHalf])
   // Live rapier module: `setRigidBodyType` prefers its RigidBodyType enum over
   // our numeric fallback, so a rapier upgrade can never silently reinterpret
   // the number as a different body type.
@@ -90,12 +90,13 @@ export const Car = React.memo(function Car({
       rotation={[0, rotation, 0]}
       collisionGroups={CAR_COLLISION_GROUPS}
       canSleep={false}
+      ccdEnabled
       linearDamping={0.2}
       angularDamping={0.1}
       onCollisionEnter={spotIndex != null ? onHit : undefined}
       onContactForce={spotIndex != null ? onForce : undefined}
     >
-      <CuboidCollider args={half} position={[0, half[1], 0]} friction={0.7} density={40} restitution={0.20} />
+      <CuboidCollider args={half} position={[0, half[1], 0]} friction={0.7} density={80} restitution={0.25} />
       <group ref={modelRef}>
         <Suspense fallback={null}>
           <CarModel id={key} damage={dmg} seed={dentSeed.current} />
