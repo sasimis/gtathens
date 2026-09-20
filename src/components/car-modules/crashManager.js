@@ -189,8 +189,8 @@ export const knockLoose = (i, me, other, speed) => {
     const lv = other.linvel(); dx = lv.x; dz = lv.z
   } else { dx /= len; dz /= len }
   const lv = other.linvel()
-  const push = Math.min(PUSH_MAX, Math.max(PUSH_MIN, speed * 1.05))
-  const spin = Math.max(-2.2, Math.min(2.2, (dz * lv.x - dx * lv.z) * 0.35))
+  const push = Math.min(PUSH_MAX, Math.max(PUSH_MIN, speed * 1.15))
+  const spin = Math.max(-2.5, Math.min(2.5, (dz * lv.x - dx * lv.z) * 0.4))
   me.setLinvel({ x: dx * push, y: 0, z: dz * push }, true)
   me.setAngvel({ x: 0, y: spin, z: 0 }, true)
   addDamage(i, Math.min(0.4, 0.05 + speed * 0.022))
