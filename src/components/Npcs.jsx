@@ -30,6 +30,7 @@ import {
   CarDriver,
   CarModel,
   crash,
+  crashHitFromPayload,
   addAiDamage,
   getCarBody,
   isAiCarOccupied,
@@ -556,6 +557,21 @@ const Ped = ({ index, x, z, dir }) => {
     }
   })
 
+  const handleCollision = React.useCallback((p) => {
+    if (rec && !rec.dead) {
+      const orb = p?.other?.rigidBody
+      if (orb && typeof orb.linvel === 'function') {
+        const lv = orb.linvel()
+        const speed = Math.hypot(lv.x, lv.z)
+        if (speed > 2.2) {
+          rec.hp = 0
+          rec.dead = true
+          try { audio.crash(Math.min(1.0, 0.35 + speed / 15)) } catch { /* silent */ }
+        }
+      }
+    }
+  }, [rec])
+
   return (
     <group ref={gRef} position={[x, 0, z]} rotation={[0, dir, 0]}>
       <RigidBody
@@ -564,6 +580,7 @@ const Ped = ({ index, x, z, dir }) => {
         colliders={false}
         position={[0, 0.95, 0]}
         collisionGroups={PED_GROUPS}
+        onCollisionEnter={handleCollision}
       >
         <CapsuleCollider args={[0.6, 0.35]} />
       </RigidBody>
@@ -869,6 +886,9 @@ const AiCar = ({ route, seed, index = 0 }) => {
     }
   })
 
+  const onHit = React.useCallback((p) => crashHitFromPayload(p, null, false, 0, index), [index])
+  const onForce = React.useCallback((p) => crashHitFromPayload(p, null, true, p?.totalForceMagnitude ?? 0, index), [index])
+
   return (
     <group ref={gRef} position={[route[0][0], 0, route[0][1]]}>
       <RigidBody
@@ -882,7 +902,8 @@ const AiCar = ({ route, seed, index = 0 }) => {
         ccdEnabled
         linearDamping={0.5}
         angularDamping={2.0}
-        onCollisionEnter={(p) => { try { audio.crash(0.3) } catch { /* ignore */ } }}
+        onCollisionEnter={onHit}
+        onContactForce={onForce}
       >
         <CuboidCollider args={[half[0] + 0.05, half[1] + 0.05, half[2] + 0.05]} friction={0.7} restitution={0.20} />
       </RigidBody>
