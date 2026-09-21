@@ -190,15 +190,15 @@ export const knockLoose = (i, me, other, speed) => {
   } else { dx /= len; dz /= len }
   const lv = other.linvel()
   const push = Math.min(PUSH_MAX, Math.max(PUSH_MIN, speed * 1.05))
-  const spin = Math.max(-2.2, Math.min(2.2, (dz * lv.x - dx * lv.z) * 0.35))
+  const spin = Math.max(-3.5, Math.min(3.5, (dz * lv.x - dx * lv.z) * 0.45))
   me.setLinvel({ x: dx * push, y: 0, z: dz * push }, true)
   me.setAngvel({ x: 0, y: spin, z: 0 }, true)
-  addDamage(i, Math.min(0.4, 0.05 + speed * 0.022))
+  addDamage(i, Math.min(0.45, 0.05 + speed * 0.025))
   const hitter = crash.bodyToSpot.get(other)
   if (hitter != null && hitter !== i) addDamage(hitter, Math.min(0.25, 0.03 + speed * 0.014))
 }
 
-export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) => {
+export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0, aiIndex = null) => {
   const me = payload?.target?.rigidBody
   const orb = payload?.other?.rigidBody
   if (!me) return
@@ -221,7 +221,9 @@ export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) 
   }
 
   // 2. Dynamic / driven / loose car colliding with building, environment, AI traffic, or other cars
-  if (spotIndex != null && spotIndex >= 0 && typeof me.isDynamic === 'function' && me.isDynamic()) {
+  const carIdx = spotIndex != null && spotIndex >= 0 ? spotIndex : null
+  const isAi = aiIndex != null && aiIndex >= 0
+  if ((carIdx != null || isAi) && typeof me.isDynamic === 'function' && me.isDynamic()) {
     const lv = me.linvel ? me.linvel() : { x: 0, z: 0 }
     let speed = Math.hypot(lv.x, lv.z)
     if (orb && typeof orb.linvel === 'function') {
@@ -229,8 +231,9 @@ export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) 
       speed = Math.max(speed, Math.hypot(lv.x - olv.x, lv.z - olv.z))
     }
     if (speed < HIT_SPEED_MIN) return
+    const lastHitKey = isAi ? `ai_${aiIndex}` : spotIndex
     const now = performance.now()
-    if (now - (crash.lastHit[spotIndex] ?? 0) < HIT_DEBOUNCE_MS) return
+    if (now - (crash.lastHit[lastHitKey] ?? 0) < HIT_DEBOUNCE_MS) return
     if (viaForce && forceMag < HIT_FORCE_MIN) return
 
     const otherCol = payload.other?.collider
@@ -238,10 +241,11 @@ export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) 
     const isCar = isCarCollider(otherCol)
 
     if (isBuilding || isCar) {
-      crash.lastHit[spotIndex] = now
+      crash.lastHit[lastHitKey] = now
       audio.crash(speed / 30)
       const dmgAmt = Math.min(0.35, 0.04 + speed * 0.018)
-      addDamage(spotIndex, dmgAmt)
+      if (carIdx != null) addDamage(carIdx, dmgAmt)
+      if (isAi) addAiDamage(aiIndex, dmgAmt)
     }
   }
 }

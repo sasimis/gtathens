@@ -14,6 +14,7 @@ export const Car = React.memo(function Car({
   bodyRef = null,
   modelRef = null,
   spotIndex = null,
+  aiIndex = null,
 }) {
   const key = normalizeId(id)
   const rawHalf = HALF[key]
@@ -22,12 +23,16 @@ export const Car = React.memo(function Car({
   // our numeric fallback, so a rapier upgrade can never silently reinterpret
   // the number as a different body type.
   const { rapier } = useRapier()
-  const [dmg, setDmg] = useState(() => (spotIndex != null ? crash.damage[spotIndex] ?? 0 : 0))
+  const [dmg, setDmg] = useState(() => {
+    if (spotIndex != null) return crash.damage[spotIndex] ?? 0
+    if (aiIndex != null) return crash.aiDamage[aiIndex] ?? 0
+    return 0
+  })
   const dentSeed = useRef(null)
   if (!dentSeed.current) dentSeed.current = { r: Math.random() - 0.5, p: Math.random() - 0.5 }
 
-  const onHit = useCallback((p) => crashHitFromPayload(p, spotIndex, false), [spotIndex])
-  const onForce = useCallback((p) => crashHitFromPayload(p, spotIndex, true, p?.totalForceMagnitude ?? 0), [spotIndex])
+  const onHit = useCallback((p) => crashHitFromPayload(p, spotIndex, false, 0, aiIndex), [spotIndex, aiIndex])
+  const onForce = useCallback((p) => crashHitFromPayload(p, spotIndex, true, p?.totalForceMagnitude ?? 0, aiIndex), [spotIndex, aiIndex])
 
   useEffect(() => {
     if (spotIndex == null || spotIndex < 0) return
@@ -86,14 +91,15 @@ export const Car = React.memo(function Car({
       ref={bodyRef}
       type="fixed"
       colliders={false}
+      ccdEnabled
       position={position}
       rotation={[0, rotation, 0]}
       collisionGroups={CAR_COLLISION_GROUPS}
       canSleep={false}
       linearDamping={0.2}
       angularDamping={0.1}
-      onCollisionEnter={spotIndex != null ? onHit : undefined}
-      onContactForce={spotIndex != null ? onForce : undefined}
+      onCollisionEnter={spotIndex != null || aiIndex != null ? onHit : undefined}
+      onContactForce={spotIndex != null || aiIndex != null ? onForce : undefined}
     >
       <CuboidCollider args={half} position={[0, half[1], 0]} friction={0.7} density={40} restitution={0.20} />
       <group ref={modelRef}>
