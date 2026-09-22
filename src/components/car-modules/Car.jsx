@@ -17,7 +17,7 @@ export const Car = React.memo(function Car({
 }) {
   const key = normalizeId(id)
   const rawHalf = HALF[key]
-  const half = React.useMemo(() => [rawHalf[0] + 0.05, rawHalf[1] + 0.05, rawHalf[2] + 0.05], [rawHalf])
+  const half = React.useMemo(() => [rawHalf[0] + 0.10, rawHalf[1] + 0.08, rawHalf[2] + 0.10], [rawHalf])
   // Live rapier module: `setRigidBodyType` prefers its RigidBodyType enum over
   // our numeric fallback, so a rapier upgrade can never silently reinterpret
   // the number as a different body type.

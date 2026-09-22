@@ -174,11 +174,13 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       ? -reverseMax * power * Math.max(0.6, surfaceMul) * aB
       : 0
 
-    const tau = wantF || wantB ? accelTau : 0.22
+    // Active counter-braking (e.g. pressing S while going forward or W while in reverse)
+    const isCounterBraking = (fwdV > 0.5 && wantB) || (fwdV < -0.5 && wantF)
+    const tau = isCounterBraking ? accelTau * 0.4 : (wantF || wantB ? accelTau : 0.22)
     const lerpRate = 1 - Math.pow(0.0015, delta / tau)
     let newFwdV = fwdV + (targetFwd - fwdV) * lerpRate
     if (isBraking) {
-      newFwdV = Math.abs(fwdV) > 0.4 ? fwdV * Math.max(0, 1 - 6 * delta) : 0
+      newFwdV = Math.abs(fwdV) > 0.4 ? fwdV * Math.max(0, 1 - 7 * delta) : 0
     }
 
     let grip = tuning.grip
@@ -201,10 +203,10 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     const steerRaw = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0) + gpS
     const steer = steerRaw
 
-    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
+    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 24))
 
     const absSpeed = Math.abs(fwdV)
-    let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
+    let turnFactor = Math.max(0.75, Math.min(1, absSpeed / 3.5))
     if (absSpeed > 16) {
       turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
     }
@@ -212,15 +214,19 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       turnFactor *= 1.35
     }
 
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg)
+    // Fix reverse steering: invert angY when moving backward or intending to back up
+    const isReversing = fwdV < -0.1 || (wantB && fwdV <= 0.1)
+    const reverseDir = isReversing ? -1 : 1
+
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * reverseDir
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     if (modelRef?.current) {
       const accelAmt = (newFwdV - fwdV) / Math.max(0.01, delta)
-      const pitchTarget = Math.max(-0.06, Math.min(0.06, -accelAmt * 0.003))
-      const rollTarget = Math.max(-0.08, Math.min(0.08, -steerRef.current * (planarSpeed / 15) * 0.05))
-      modelRef.current.rotation.x = THREE.MathUtils.lerp(modelRef.current.rotation.x, pitchTarget, Math.min(1, delta * 8))
-      modelRef.current.rotation.z = THREE.MathUtils.lerp(modelRef.current.rotation.z, rollTarget, Math.min(1, delta * 8))
+      const pitchTarget = Math.max(-0.07, Math.min(0.07, -accelAmt * 0.0035))
+      const rollTarget = Math.max(-0.09, Math.min(0.09, -steerRef.current * (planarSpeed / 15) * 0.06))
+      modelRef.current.rotation.x = THREE.MathUtils.lerp(modelRef.current.rotation.x, pitchTarget, Math.min(1, delta * 10))
+      modelRef.current.rotation.z = THREE.MathUtils.lerp(modelRef.current.rotation.z, rollTarget, Math.min(1, delta * 10))
     }
   })
 
