@@ -40,8 +40,8 @@ export const CAR_COLLISION_GROUPS = GROUP_CAR | (FILTER_ALL << 16)
 export const PLAYER_COLLISION_GROUPS = GROUP_PLAYER | (FILTER_ALL << 16)
 
 // Crash tuning
-export const HIT_SPEED_MIN = 1.2
-export const HIT_FORCE_MIN = 20000
+export const HIT_SPEED_MIN = 0.8
+export const HIT_FORCE_MIN = 15000
 export const HIT_DEBOUNCE_MS = 250
 export const PUSH_MIN = 2.5
 export const PUSH_MAX = 12
