@@ -50,30 +50,30 @@ export const LOOSE_MAX_MS = 6000
 // Driving tuning
 export const CAR_MAX_SPEED = 17
 export const CAR_REVERSE_MAX = 7
-export const CAR_TURN_RATE = 2.2
+export const CAR_TURN_RATE = 2.6
 
 export const CAR_TUNING = {
-  sports: { maxSpeed: 24, reverseMax: 9.5, turnRate: 2.7, accelTau: 0.24, grip: 0.90 },
-  roadster: { maxSpeed: 23, reverseMax: 9, turnRate: 2.7, accelTau: 0.25, grip: 0.90 },
-  'police-sports': { maxSpeed: 24, reverseMax: 9.5, turnRate: 2.7, accelTau: 0.24, grip: 0.90 },
-  muscle: { maxSpeed: 22, reverseMax: 8.5, turnRate: 2.5, accelTau: 0.28, grip: 0.87 },
-  'muscle-2': { maxSpeed: 22, reverseMax: 8.5, turnRate: 2.5, accelTau: 0.28, grip: 0.87 },
-  'police-muscle': { maxSpeed: 22, reverseMax: 8.5, turnRate: 2.5, accelTau: 0.28, grip: 0.87 },
-  sedan: { maxSpeed: 19, reverseMax: 7.5, turnRate: 2.4, accelTau: 0.30, grip: 0.91 },
-  taxi: { maxSpeed: 19, reverseMax: 7.5, turnRate: 2.4, accelTau: 0.30, grip: 0.91 },
-  hatchback: { maxSpeed: 18, reverseMax: 7.5, turnRate: 2.5, accelTau: 0.29, grip: 0.91 },
-  'police-sedan': { maxSpeed: 20, reverseMax: 8, turnRate: 2.5, accelTau: 0.28, grip: 0.91 },
-  suv: { maxSpeed: 18, reverseMax: 7, turnRate: 2.2, accelTau: 0.33, grip: 0.88 },
-  pickup: { maxSpeed: 18, reverseMax: 7, turnRate: 2.2, accelTau: 0.33, grip: 0.88 },
-  'police-suv': { maxSpeed: 19, reverseMax: 7.5, turnRate: 2.3, accelTau: 0.31, grip: 0.89 },
-  van: { maxSpeed: 17, reverseMax: 6.5, turnRate: 2.1, accelTau: 0.35, grip: 0.89 },
-  ambulance: { maxSpeed: 17, reverseMax: 6.5, turnRate: 2.1, accelTau: 0.35, grip: 0.89 },
-  bus: { maxSpeed: 15, reverseMax: 5.5, turnRate: 1.8, accelTau: 0.42, grip: 0.93 },
-  firetruck: { maxSpeed: 15, reverseMax: 5.5, turnRate: 1.8, accelTau: 0.42, grip: 0.93 },
-  truck: { maxSpeed: 16, reverseMax: 6, turnRate: 1.9, accelTau: 0.39, grip: 0.93 },
-  'truck-with-trailer': { maxSpeed: 14, reverseMax: 5, turnRate: 1.7, accelTau: 0.44, grip: 0.93 },
-  limousine: { maxSpeed: 18, reverseMax: 6.5, turnRate: 2.0, accelTau: 0.36, grip: 0.89 },
-  'monster-truck': { maxSpeed: 19, reverseMax: 7.5, turnRate: 2.4, accelTau: 0.30, grip: 0.85 },
+  sports: { maxSpeed: 25, reverseMax: 9.5, turnRate: 3.0, accelTau: 0.22, grip: 0.92 },
+  roadster: { maxSpeed: 24, reverseMax: 9, turnRate: 3.0, accelTau: 0.23, grip: 0.92 },
+  'police-sports': { maxSpeed: 25, reverseMax: 9.5, turnRate: 3.0, accelTau: 0.22, grip: 0.92 },
+  muscle: { maxSpeed: 23, reverseMax: 8.5, turnRate: 2.8, accelTau: 0.25, grip: 0.89 },
+  'muscle-2': { maxSpeed: 23, reverseMax: 8.5, turnRate: 2.8, accelTau: 0.25, grip: 0.89 },
+  'police-muscle': { maxSpeed: 23, reverseMax: 8.5, turnRate: 2.8, accelTau: 0.25, grip: 0.89 },
+  sedan: { maxSpeed: 20, reverseMax: 8.0, turnRate: 2.7, accelTau: 0.27, grip: 0.93 },
+  taxi: { maxSpeed: 20, reverseMax: 8.0, turnRate: 2.7, accelTau: 0.27, grip: 0.93 },
+  hatchback: { maxSpeed: 19, reverseMax: 7.5, turnRate: 2.8, accelTau: 0.26, grip: 0.93 },
+  'police-sedan': { maxSpeed: 21, reverseMax: 8.5, turnRate: 2.8, accelTau: 0.25, grip: 0.93 },
+  suv: { maxSpeed: 19, reverseMax: 7.5, turnRate: 2.5, accelTau: 0.30, grip: 0.90 },
+  pickup: { maxSpeed: 19, reverseMax: 7.5, turnRate: 2.5, accelTau: 0.30, grip: 0.90 },
+  'police-suv': { maxSpeed: 20, reverseMax: 8.0, turnRate: 2.6, accelTau: 0.28, grip: 0.91 },
+  van: { maxSpeed: 18, reverseMax: 7.0, turnRate: 2.3, accelTau: 0.32, grip: 0.91 },
+  ambulance: { maxSpeed: 18, reverseMax: 7.0, turnRate: 2.3, accelTau: 0.32, grip: 0.91 },
+  bus: { maxSpeed: 16, reverseMax: 6.0, turnRate: 2.0, accelTau: 0.38, grip: 0.94 },
+  firetruck: { maxSpeed: 16, reverseMax: 6.0, turnRate: 2.0, accelTau: 0.38, grip: 0.94 },
+  truck: { maxSpeed: 17, reverseMax: 6.5, turnRate: 2.1, accelTau: 0.35, grip: 0.94 },
+  'truck-with-trailer': { maxSpeed: 15, reverseMax: 5.5, turnRate: 1.9, accelTau: 0.40, grip: 0.94 },
+  limousine: { maxSpeed: 19, reverseMax: 7.0, turnRate: 2.3, accelTau: 0.32, grip: 0.91 },
+  'monster-truck': { maxSpeed: 20, reverseMax: 8.0, turnRate: 2.7, accelTau: 0.27, grip: 0.88 },
 }
 
 export const getCarTuning = (id) => {

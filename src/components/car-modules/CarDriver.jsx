@@ -204,7 +204,7 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
 
     const absSpeed = Math.abs(fwdV)
-    let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
+    let turnFactor = Math.max(0.5, Math.min(1, absSpeed / 3))
     if (absSpeed > 16) {
       turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
     }
@@ -212,7 +212,9 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       turnFactor *= 1.35
     }
 
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg)
+    // Invert turn direction in reverse so steering Left/Right directs the rear Left/Right as expected
+    const reverseMult = (fwdV < -0.1 || (wantB && fwdV <= 0.1)) ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * reverseMult
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     if (modelRef?.current) {
