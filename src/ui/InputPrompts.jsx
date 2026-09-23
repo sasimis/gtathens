@@ -94,9 +94,10 @@ const GamepadOnFoot = () => (
     <PromptRow icon={<StickIcon side="left" />} action="Move" />
     <PromptRow icon={<StickIcon side="right" />} action="Look / Aim" />
     <PromptRow icon={<ButtonA />} action="Jump" />
+    <PromptRow icon={<ButtonY />} action="Enter Vehicle / Switch Char" />
     <PromptRow icon={<ButtonB />} action="Exit Vehicle" />
-    <PromptRow icon={<ButtonX />} action="Enter Vehicle" />
-    <PromptRow icon={<ButtonY />} action="Switch Character" />
+    <PromptRow icon={<ButtonX />} action="Enter Vehicle (alt)" />
+    <PromptRow icon={<StickIcon side="right" />} action="Camera / Aim" />
     <PromptRow icon={<TriggerIcon label="RT" side="right" />} action="Fire Weapon" />
     <PromptRow icon={<TriggerIcon label="LB" side="left" />} action="Reload" />
     <PromptRow icon={<TriggerIcon label="RB" side="right" />} action="Sprint" />
@@ -111,7 +112,9 @@ const KeyboardDriving = () => (
     <PromptRow icon={<KeyIcon>S</KeyIcon>} action="Reverse / Brake" />
     <PromptRow icon={<KeyIcon>A</KeyIcon>} action="Steer Left" />
     <PromptRow icon={<KeyIcon>D</KeyIcon>} action="Steer Right" />
+    <PromptRow icon={<KeyIcon wide>Shift</KeyIcon>} action="Nitro Boost" />
     <PromptRow icon={<KeyIcon wide>Space</KeyIcon>} action="Brake" />
+    <PromptRow icon={<KeyIcon>H</KeyIcon>} action="Horn" />
     <PromptRow icon={<KeyIcon>M</KeyIcon>} action="Radio Stations" />
     <PromptRow icon={<KeyIcon>F</KeyIcon>} action="Exit Vehicle" />
     <PromptRow icon={<KeyIcon>Esc</KeyIcon>} action="Pause Menu" />
@@ -123,10 +126,13 @@ const GamepadDriving = () => (
     <PromptRow icon={<TriggerIcon label="RT" side="right" />} action="Accelerate" />
     <PromptRow icon={<TriggerIcon label="LT" side="left" />} action="Reverse / Brake" />
     <PromptRow icon={<StickIcon side="left" />} action="Steer" />
-    <PromptRow icon={<StickIcon side="right" />} action="Look" />
+    <PromptRow icon={<StickIcon side="right" />} action="Camera Orbit" />
     <PromptRow icon={<ButtonA />} action="Brake / Handbrake" />
+    <PromptRow icon={<ButtonX />} action="Nitro Boost" />
+    <PromptRow icon={<ButtonY />} action="Exit Vehicle (alt)" />
     <PromptRow icon={<ButtonB />} action="Exit Vehicle" />
     <PromptRow icon={<KeyIcon>Start</KeyIcon>} action="Pause Menu" />
+    <PromptRow icon={<TriggerIcon label="RB" side="right" />} action="Horn" />
   </div>
 )
 

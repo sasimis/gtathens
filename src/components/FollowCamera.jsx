@@ -10,6 +10,14 @@ import useGameStore, { CAM_VIEWS, Phase } from '../store/useGameStore'
 // does nothing. `orbit` keeps only the small pitch trim (shared on-foot +
 // driving so the view never jumps when entering/exiting a car).
 export const orbit = { pitchTrim: 0 }
+// Independent DRIVING camera orbit: RS-X adds a yaw offset around the car,
+// RS-Y nudges pitchTrim. The car's heading still owns the base view; this
+// offset decays back to 0 when the stick is released (see CarDriver).
+export const driveOrbit = { yaw: 0 }
+export const DRIVE_YAW_MAX = 1.2
+export const nudgePitchTrim = (d) => {
+  orbit.pitchTrim = clamp(orbit.pitchTrim + d, TRIM_MIN, TRIM_MAX)
+}
 const TRIM_MIN = -0.25
 const TRIM_MAX = 0.3
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v))
@@ -88,6 +96,15 @@ export const CameraRig = ({ bodyRef, modelRef, lookHeight = 1.2, yawRef = null }
       facing.set(0, 0, 1).applyQuaternion(model.getWorldQuaternion(quatTmp))
       facing.y = 0
       if (facing.lengthSq() > 1e-6) facing.normalize()
+      // DRIVING: the right-stick orbit offset rotates the view AROUND the car
+      // (independent of steering). Clamp + decay handled by the writer.
+      if (driveOrbit.yaw !== 0) {
+        const cy = Math.cos(driveOrbit.yaw)
+        const sy = Math.sin(driveOrbit.yaw)
+        const fx = facing.x * cy + facing.z * sy
+        const fz = -facing.x * sy + facing.z * cy
+        facing.set(fx, 0, fz)
+      }
     }
 
     const s = settingsRef.current
@@ -151,7 +168,23 @@ export const CameraRig = ({ bodyRef, modelRef, lookHeight = 1.2, yawRef = null }
           /* ignore */
         }
         const toi = hit ? hit.timeOfImpact ?? hit.toi : undefined
-        if (typeof toi === 'number' && toi > 0.4 && toi < rayLen) {
+        // Self-hit guard: while driving, the ray starts at the car's CENTER,
+        // so it hits the car's own cuboid collider every frame and yanked the
+        // camera to the 1.2 m minimum (the "shaking" while driving). Compare
+        // the hit collider's handle against the camera target body's own
+        // colliders and ignore those hits entirely.
+        let selfHit = false
+        try {
+          const hc = hit && hit.collider
+          if (hc && typeof body.numColliders === 'function') {
+            const n = body.numColliders()
+            for (let ci = 0; ci < n; ci += 1) {
+              const c = body.collider(ci)
+              if (c && c.handle === hc.handle) { selfHit = true; break }
+            }
+          }
+        } catch (e) { /* handle compare unavailable — fall back to toi guard */ }
+        if (!selfHit && typeof toi === 'number' && toi > 0.4 && toi < rayLen) {
           // Pull the camera just in front of the wall (0.45 m margin), but
           // never closer than 1.2 m to the head — that reads as a shoulder
           // cam instead of a wall clip.

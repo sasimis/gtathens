@@ -65,6 +65,8 @@ export { crash as crashManager } from './car-modules/crashManager.js'
 export const setAiLive = (i, x, z) => crashForQA.setAiLive(i, x, z)
 export const getAiLive = (i) => crashForQA.getAiLive(i)
 export { CarModel } from './car-modules/CarModel.jsx'
+export { CarAnim } from './car-modules/CarAnim.jsx'
+export { CarDebrisPool } from './car-modules/CarDebrisPool.jsx'
 export { Car, CarByColor, Car as default } from './car-modules/Car.jsx'
 export { useParkingSpots } from './car-modules/useParkingSpots.js'
 export { CarDriver, LooseSettler } from './car-modules/CarDriver.jsx'

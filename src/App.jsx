@@ -4,7 +4,7 @@ import { Physics, useRapier } from '@react-three/rapier'
 import City from './components/City'
 import Ground from './components/Ground'
 import Player from './components/Player'
-import Car, { ParkedCars, PLAYER_COLLISION_GROUPS } from './components/Car'
+import Car, { ParkedCars, CarDebrisPool, PLAYER_COLLISION_GROUPS } from './components/Car'
 import MenuCamera from './components/MenuCamera'
 import MenuRoot from './ui/MenuRoot'
 import InputPrompts from './ui/InputPrompts'
@@ -14,6 +14,7 @@ import Npcs from './components/Npcs'
 import CityNavMesh from './components/CityNavMesh'
 import AudioSystem from './components/AudioSystem'
 import Pickups from './components/Pickups'
+import GrassArea from './components/GrassArea'
 import Inventory from './ui/Inventory'
 import SickInventory from './ui/SickInventory'
 import RadioMenu from './ui/RadioMenu'
@@ -127,6 +128,10 @@ const Scene = () => {
               overlay plane and no polygonOffset on the ground; see
               components/Ground.jsx for why that made roads pop in late. */}
           <Ground />
+          {/* Lawn base + instanced blades on the OSM grass polys — visual
+              only (no colliders). Mounted OUTSIDE the inGame gate so the
+              menu backdrop already shows green. */}
+          <GrassArea />
 
           {/* The on-foot player - unmounted the moment you climb into a car
               (the driven car then owns the follow camera + input). MUST be
@@ -144,6 +149,7 @@ const Scene = () => {
                   streets near the spawn. Walk up + press F to drive any of
                   them; WASD to steer, F to hop back out. */}
               <ParkedCars spawn={sp} count={26} radius={280} />
+              <CarDebrisPool />
               <Npcs spawn={sp} />
               <Pickups spawn={sp} />
               {/* Ped navmesh tile (null render): ground + building prisms from

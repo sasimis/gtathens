@@ -1,6 +1,10 @@
 
 import { GROUP_CAR, GROUP_BUILDING, HIT_SPEED_MIN, HIT_FORCE_MIN, HIT_DEBOUNCE_MS, PUSH_MIN, PUSH_MAX } from './constants.js'
 import { audio } from '../../lib/audio'
+import { pushDebris, animState } from './carVisuals.js'
+
+// Last crash event per spot: { at, speed, x, y, z } — CarAnim / CarDebrisPool
+// poll this instead of subscribing, so crash FX never re-render React.
 
 class CrashManager {
   damage = [] // number per spot 0..1
@@ -15,6 +19,7 @@ class CrashManager {
   aiLive = [] // stable {x,z} per AI car, mutated in place per frame
   aiDamage = [] // 0..1 per AI car (stolen-car HUD/engine parity)
   aiOccupied = new Set() // AI indices currently stolen by the player
+  lastCrash = [] // { at, speed, x, y, z } per spot — crash FX poll target
 
   setLive(i, x, z) {
     if (!this.livePos[i]) this.livePos[i] = { x, z }
@@ -176,6 +181,35 @@ export const setRigidBodyType = (rb, type, rapierModule = null) => {
   }
 }
 
+// Records a crash FX event: lastCrash entry + pooled debris burst. Called
+// from BOTH knock-loose and driven-car damage paths so every visible impact
+// throws trim chunks and smoke, whether the victim was parked or driven.
+const recordCrashFx = (i, me, other, speed, isBuilding) => {
+  let px = 0, py = 0.8, pz = 0, dx = 0, dz = 0
+  try {
+    const t = me.translation ? me.translation() : null
+    if (t) { px = t.x; py = t.y + 0.7; pz = t.z }
+    const o = other && other.translation ? other.translation() : null
+    if (t && o) {
+      dx = t.x - o.x; dz = t.z - o.z
+      const len = Math.hypot(dx, dz)
+      if (len > 0.001) { dx /= len; dz /= len }
+    }
+  } catch {}
+  try {
+    crash.lastCrash[i] = { at: performance.now(), speed, x: px, y: py, z: pz }
+    const a = animState.spots[i]
+    if (a) { try { a.crashAt = performance.now() } catch { a.crashAt = 1 } }
+  } catch {}
+  const hard = Math.min(1, speed / 18)
+  const n = 3 + Math.round(hard * 9)
+  try {
+    // Bumper/glass chunks fly along the separation axis, smoke hangs back.
+    pushDebris(px, py, pz, dx * (2 + speed * 0.4), 2.2 + hard * 2, dz * (2 + speed * 0.4), isBuilding ? 0 : 1, n)
+    pushDebris(px, py + 0.3, pz, -dx * 1.2, 1.1, -dz * 1.2, 2, 2 + Math.round(hard * 4))
+  } catch {}
+}
+
 export const knockLoose = (i, me, other, speed) => {
   if (crash.loose.has(i)) return
   crash.loose.add(i)
@@ -216,6 +250,7 @@ export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) 
     if (viaForce && forceMag < HIT_FORCE_MIN) return
     crash.lastHit[spotIndex] = now
     audio.crash(speed / 30) // GTA-style thump, louder the harder the ram
+    recordCrashFx(spotIndex, me, orb, speed, false)
     knockLoose(spotIndex, me, orb, speed)
     return
   }
@@ -240,6 +275,7 @@ export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) 
     if (isBuilding || isCar) {
       crash.lastHit[spotIndex] = now
       audio.crash(speed / 30)
+      recordCrashFx(spotIndex, me, orb, speed, isBuilding && !isCar)
       const dmgAmt = Math.min(0.35, 0.04 + speed * 0.018)
       addDamage(spotIndex, dmgAmt)
     }

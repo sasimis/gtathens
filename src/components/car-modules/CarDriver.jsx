@@ -4,10 +4,11 @@ import { useFrame } from '@react-three/fiber'
 import { useRapier } from '@react-three/rapier'
 import * as THREE from 'three'
 import useGameStore, { Phase } from '../../store/useGameStore'
-import { CameraRig, OrbitInput } from '../FollowCamera'
-import { BTN, getGamepad, padEdge, padHeld, padValue, readStick } from '../../lib/gamepad'
-import { CAR_MAX_SPEED, CAR_REVERSE_MAX, CAR_TURN_RATE, LOOSE_MAX_MS, getCarTuning } from './constants.js'
+import { CameraRig, OrbitInput, driveOrbit, nudgePitchTrim, DRIVE_YAW_MAX } from '../FollowCamera'
+import { BTN, getDrivePad, padEdge, padHeld, padValue, readDriveAxis, readStick, wheelPedals, isWheelLike, vibrateGamepad, GP_DEADZONE_DRIVE } from '../../lib/gamepad'
+import { CAR_MAX_SPEED, CAR_REVERSE_MAX, CAR_TURN_RATE, LOOSE_MAX_MS, NITRO_SPEED_MUL, NITRO_ACCEL_MUL, FOV_SPEED_ADD, FOV_NITRO_ADD, getCarTuning } from './constants.js'
 import { crash, isOnAsphalt, aiDamage, setAiCarOccupied, setRigidBodyType } from './crashManager.js'
+import { setAnimSpot } from './carVisuals.js'
 import { audio } from '../../lib/audio'
 
 const q = new THREE.Quaternion()
@@ -21,6 +22,8 @@ const KEY_MAP = {
   KeyA: 'left', ArrowLeft: 'left',
   KeyD: 'right', ArrowRight: 'right',
   Space: 'brake',
+  ShiftLeft: 'nitro', ShiftRight: 'nitro',
+  KeyH: 'horn',
 }
 
 export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, aiIndex = null, carId = null }) => {
@@ -30,9 +33,11 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
   const phaseRef = useRef(phase)
   phaseRef.current = phase
   const mountedAt = useRef(typeof performance !== 'undefined' ? performance.now() : 0)
-  const keys = useRef({ fwd: false, back: false, left: false, right: false, brake: false })
+  const keys = useRef({ fwd: false, back: false, left: false, right: false, brake: false, nitro: false, horn: false })
   const dmgSync = useRef({ idx: null, val: 0 })
   const steerRef = useRef(0)
+  const hornAt = useRef(0)
+  const fovCur = useRef(null)
 
   const exitCar = useCallback(() => {
     const store = useGameStore.getState()
@@ -104,7 +109,7 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     store.clearDriving()
   }, [bodyRef, half, spotIndex, aiIndex, world, rapier])
 
-  useFrame((_, delta) => {
+  useFrame((frameState, delta) => {
     const rb = bodyRef.current
     if (!rb?.linvel) return
     const tNow = rb.translation()
@@ -116,10 +121,19 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       : spotIndex != null ? Math.min(1, crash.damage[spotIndex] ?? 0) : 0
     // Sync key covers BOTH systems: parked index or ai<i>. Without the ai part,
     // two stolen cars with equal damage would skip the HUD resync on switch.
+    // NOTE: pad is read below, so the rumble uses a fresh getDrivePad() here.
     const syncIdx = spotIndex != null ? spotIndex : aiIndex != null && aiIndex >= 0 ? `ai${aiIndex}` : null
     if (syncIdx !== dmgSync.current.idx || Math.abs(dmg - dmgSync.current.val) > 0.001) {
+      const prev = dmgSync.current.val
       dmgSync.current = { idx: syncIdx, val: dmg }
       setCarDamage(dmg)
+      // Crash rumble: a damage JUMP means we just hit something hard.
+      try {
+        if (dmg - prev > 0.02) {
+          const rp = getDrivePad()
+          if (rp) vibrateGamepad(rp, 220, 0.9, 1.0)
+        }
+      } catch {}
     }
 
     if (phaseRef.current !== Phase.PLAYING) {
@@ -128,14 +142,71 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       return
     }
 
-    const pad = getGamepad()
-    let gpF = 0, gpB = 0, gpS = 0, gpBr = false
+      const pad = getDrivePad()
+    let gpF = 0, gpB = 0, gpS = 0, gpBr = false, gpNitro = false, gpHornEdge = false
+    let padIsWheel = false
     if (pad) {
-      gpF = padValue(pad, BTN.RT)
-      gpB = padValue(pad, BTN.LT)
-      gpS = readStick(pad, 0)
+      padIsWheel = isWheelLike(pad)
+      // Pedals: RT/LT triggers always. The raw-axes pedal fallback (old
+      // wheelPedals path) is ONLY for real wheels — on a standard gamepad it
+      // read LS-Y / RS-X as gas+brake, so touching the right stick (camera)
+      // made the car drive itself.
+      const ped = padIsWheel
+        ? wheelPedals(pad)
+        : { gas: padValue(pad, BTN.RT), brake: padValue(pad, BTN.LT) }
+      gpF = ped.gas
+      gpB = ped.brake
+      try {
+        if (gpF < 0.15 && padHeld(pad, BTN.A)) gpF = 1
+        if (gpB < 0.15 && padHeld(pad, BTN.X)) gpB = 1
+      } catch {}
+      // Steering: LS X (wheels use their own axis curve below). The old RS-X
+      // fallback is gone — the right stick is CAMERA-ONLY while driving.
+      gpS = readDriveAxis(pad, 0)
+      try {
+        if (Math.abs(gpS) < 0.05) {
+          const dl = padHeld(pad, BTN.DPAD_LEFT) ? -1 : 0
+          const dr = padHeld(pad, BTN.DPAD_RIGHT) ? 1 : 0
+          if (dl || dr) gpS = dl + dr
+        }
+      } catch {}
+      if (padIsWheel) {
+        try {
+          const wS = readDriveAxis(pad, 0, 0.03, 1.3)
+          if (Math.abs(wS) > Math.abs(gpS)) gpS = wS
+        } catch {}
+      }
+      // Right stick = camera only (independent orbit): RS-X yaws the chase
+      // camera around the car, RS-Y nudges pitch trim. Never touches pedals
+      // or steering.
+      try {
+        const lookX = readStick(pad, 2)
+        const lookY = readStick(pad, 3)
+        if (Math.abs(lookX) > 0.05) {
+          driveOrbit.yaw = Math.max(-DRIVE_YAW_MAX, Math.min(DRIVE_YAW_MAX, driveOrbit.yaw - lookX * 2.6 * delta))
+        } else {
+          driveOrbit.yaw *= Math.exp(-2.5 * delta) // gentle re-center behind the car
+        }
+        if (Math.abs(lookY) > 0.05) nudgePitchTrim(lookY * 1.1 * delta)
+      } catch {}
       gpBr = padHeld(pad, BTN.A)
-      if (padEdge(pad, BTN.B) && performance.now() - mountedAt.current >= 350) exitCar()
+      // Nitro: X / LB on pad, any spare wheel button as fallback.
+      gpNitro = padHeld(pad, BTN.X) || padHeld(pad, BTN.LB)
+      if (padIsWheel) {
+        try {
+          for (let bi = 8; bi < 16; bi += 1) {
+            if (padHeld(pad, bi)) { gpNitro = true; break }
+          }
+        } catch {}
+      }
+      gpHornEdge = padEdge(pad, BTN.RB)
+      // Y exits too (B still works — the smoke test drives B, muscle memory
+      // either). Same 350 ms mount guard as F.
+      if ((padEdge(pad, BTN.B) || padEdge(pad, BTN.Y)) && performance.now() - mountedAt.current >= 350) {
+        driveOrbit.yaw = 0 // hand a clean camera back to the on-foot rig
+        exitCar()
+      }
+      // Crash rumble is fired from the damage sync below (change-gated).
     }
 
     const v = rb.linvel()
@@ -147,10 +218,7 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     fwd.normalize()
 
     const tuning = getCarTuning(carId)
-    const maxSpeed = tuning.maxSpeed
-    const reverseMax = tuning.reverseMax
     const baseTurnRate = tuning.turnRate
-    const accelTau = tuning.accelTau
 
     right.crossVectors(fwd, up).normalize()
 
@@ -168,22 +236,37 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     let surfaceMul = 1
     try { surfaceMul = isOnAsphalt(tNow.x, tNow.z) ? 1 : 0.55 } catch (e) { surfaceMul = 1 }
 
+    // Nitro recomputed AFTER wantF/wantB exist (uses the live pedal state).
+    const nitroNow = !!(keys.current.nitro || gpNitro) && (wantF || wantB)
+    const nitroSpd = nitroNow ? NITRO_SPEED_MUL : 1
+    const maxSpd = tuning.maxSpeed * nitroSpd
+    const revSpd = tuning.reverseMax * (nitroNow ? 1.15 : 1)
+    const tauNow = tuning.accelTau / (nitroNow ? NITRO_ACCEL_MUL : 1)
+
     const targetFwd = wantF
-      ? maxSpeed * power * surfaceMul * aF
+      ? maxSpd * power * surfaceMul * aF
       : wantB
-      ? -reverseMax * power * Math.max(0.6, surfaceMul) * aB
+      ? -revSpd * power * Math.max(0.6, surfaceMul) * aB
       : 0
 
-    const tau = wantF || wantB ? accelTau : 0.22
+    const tau = wantF || wantB ? tauNow : 0.22
     const lerpRate = 1 - Math.pow(0.0015, delta / tau)
     let newFwdV = fwdV + (targetFwd - fwdV) * lerpRate
     if (isBraking) {
-      newFwdV = Math.abs(fwdV) > 0.4 ? fwdV * Math.max(0, 1 - 6 * delta) : 0
+      // During a high-speed drift the handbrake only bleeds speed slowly (the
+      // slide needs forward momentum to carry); otherwise brake hard to a stop.
+      const driftDecel = planarSpeed > 6.0 && Math.abs(fwdV) > 4.0 ? 0.9 : 6
+      newFwdV = Math.abs(fwdV) > 0.4 ? fwdV * Math.max(0, 1 - driftDecel * delta) : 0
     }
 
     let grip = tuning.grip
     if (isBraking) {
-      grip = 0.60
+      // Handbrake DRIFT: at speed, the brake drops lateral grip hard so the
+      // rear slides and steering rotates the car beyond its travel direction
+      // (the kept sideV is exactly the drift). Slow-speed braking stays a
+      // plain stop.
+      if (planarSpeed > 6.0 && Math.abs(fwdV) > 4.0) grip = 0.22
+      else grip = 0.60
     } else if (Math.abs(sideV) > 2.0 && planarSpeed > 5.0) {
       grip = 0.68
     }
@@ -212,8 +295,47 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       turnFactor *= 1.35
     }
 
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg)
+    // No gas = no turn: a stationary car can't steer. Scale the turn rate by
+    // how fast the car is actually rolling (reversing counts — real cars steer
+    // while rolling backward too); full authority from ~2 m/s upward.
+    const rolling = Math.min(1, absSpeed / 2)
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
+
+    // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
+    try {
+      if (spotIndex != null && spotIndex >= 0) setAnimSpot(spotIndex, newFwdV, steerRef.current, nitroNow, isBraking)
+    } catch {}
+
+    // Horn (keyboard H edge, gamepad RB edge), throttled so it can't spam.
+    try {
+      if (gpHornEdge) {
+        const now = performance.now()
+        if (now - hornAt.current > 900 || hornAt.current === 0) {
+          hornAt.current = now
+          audio.horn(1)
+        }
+      }
+    } catch {}
+
+    // Speed-sensitive FOV: settings FOV + speed add + nitro add, lerped so it
+    // never pops. Writes straight to the live camera (FovSync owns settings
+    // changes; this only adds the transient kick while driving).
+    try {
+      const cam = frameState.camera
+      if (cam) {
+        const gs = useGameStore.getState()
+        const baseFov = gs.settings?.fov ?? 68
+        const spd01 = Math.min(1, Math.abs(newFwdV) / Math.max(1, maxSpd))
+        const target = baseFov + spd01 * FOV_SPEED_ADD + (nitroNow ? FOV_NITRO_ADD : 0)
+        if (fovCur.current == null) fovCur.current = cam.fov
+        fovCur.current += (target - fovCur.current) * Math.min(1, delta * 5)
+        if (Math.abs(fovCur.current - cam.fov) > 0.05) {
+          cam.fov = fovCur.current
+          cam.updateProjectionMatrix()
+        }
+      }
+    } catch {}
 
     if (modelRef?.current) {
       const accelAmt = (newFwdV - fwdV) / Math.max(0.01, delta)
@@ -225,12 +347,30 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
   })
 
   useEffect(() => {
-    const down = (e) => { const a = KEY_MAP[e.code]; if (a) keys.current[a] = true }
-    const up = (e) => { const a = KEY_MAP[e.code]; if (a) keys.current[a] = false }
+    const down = (e) => {
+      const a = KEY_MAP[e.code]
+      if (a) {
+        // Horn is edge-triggered (H): fire once per press, throttled.
+        if (a === 'horn') {
+          if (!e.repeat) {
+            const now = typeof performance !== 'undefined' ? performance.now() : 0
+            if (now - hornAt.current > 900 || hornAt.current === 0) {
+              hornAt.current = now
+              try { audio.horn(1) } catch {}
+            }
+          }
+          return
+        }
+        keys.current[a] = true
+      }
+    }
+    const up = (e) => { const a = KEY_MAP[e.code]; if (a && a !== 'horn') keys.current[a] = false }
     const blur = () => Object.keys(keys.current).forEach((k) => (keys.current[k] = false))
     const onExit = (e) => {
-      if (e.code !== 'KeyF' || e.repeat) return
+      const isExit = e.code === 'KeyF' || e.code === 'KeyY'
+      if (!isExit || e.repeat) return
       if (performance.now() - mountedAt.current < 350) return
+      driveOrbit.yaw = 0 // hand a clean camera back to the on-foot rig
       exitCar()
     }
     window.addEventListener('keydown', down)

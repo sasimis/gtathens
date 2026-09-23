@@ -115,6 +115,12 @@ export const buildingPolygons = (data) =>
     .map((b) => (b.nodes || []).map((n) => [lonToWorldX(n.lon), latToWorldZ(n.lat)]))
     .filter((poly) => poly.length >= 3)
 
+/** Grass-area polygons in world space (landuse=grass from OSM). */
+export const grassPolygons = (data) =>
+  (data.grass || [])
+    .map((g) => (g.nodes || []).map((n) => [lonToWorldX(n.lon), latToWorldZ(n.lat)]))
+    .filter((poly) => poly.length >= 3)
+
 /** Deterministic pseudo-random in [0, 1) from an integer seed. */
 export const hash01 = (i) => {
   let h = (i * 2654435761) >>> 0

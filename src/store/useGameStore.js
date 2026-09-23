@@ -270,9 +270,16 @@ if (typeof window !== 'undefined') {
   // QA seam (scripts/smoke.mjs): hand the player a gun through the SAME action
   // a weapon pickup uses, so the headless shoot test exercises the real firing
   // path instead of faking it. Never called by game code.
+  // EQUIPS the granted gun: giveWeapon only auto-equips from fists, so when the
+  // test player already picked up a shotgun the granted SMG stayed holstered and
+  // the shoot test fired exactly one shotgun blast before running dry (FAIL).
   window.__gtathensGive = (id, ammo = 90) => {
-    useGameStore.getState().giveWeapon(id, ammo)
+    const st = useGameStore.getState()
+    st.giveWeapon(id, ammo)
+    const after = useGameStore.getState()
+    if (after.weapons.some((w) => w.id === id)) after.equipWeapon(id)
     const s = useGameStore.getState()
-    return { equipped: s.equipped, guns: s.weapons.length, mag: s.weapons[0] ? s.weapons[0].mag : 0 }
+    const eq = s.weapons.find((w) => w.id === s.equipped)
+    return { equipped: s.equipped, guns: s.weapons.length, mag: eq ? eq.mag : 0 }
   }
 }

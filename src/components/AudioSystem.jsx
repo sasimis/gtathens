@@ -107,7 +107,7 @@ const AudioSystem = () => {
       driven ? driven.x : 0,
       driven ? driven.y : 0,
       driven ? driven.z : 0,
-      driven ? Math.min(1, driven.speed / 20) : 0,
+      driven ? Math.min(1, driven.speed / 30) : 0,
       !!driven,
       drivenCarId,
       0.1

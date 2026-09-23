@@ -38,6 +38,8 @@ import {
   setAiLive,
 } from './Car'
 import { audio } from '../lib/audio'
+import { setAnimAi } from './car-modules/carVisuals.js'
+import { CarWheels } from './car-modules/CarWheels.jsx'
 import Protagonist, { CHARACTERS } from './Protagonist'
 
 export const PED_COUNT = 10
@@ -317,17 +319,65 @@ const findNearestOnRoute = (route, x, z) => {
 /**
  * Gets a look-ahead target point on the route for smoother steering.
  * Instead of targeting the current position, we look ahead to anticipate turns.
+ * The target is pushed into the RIGHT-HAND LANE (traffic keeps right of the
+ * centerline the way the OSM ways are drawn).
  */
+const LANE_OFFSET = 2.2
+
 const getLookAheadTarget = (route, progress, lookAheadDist, totalLen) => {
   const targetS = Math.min(progress + lookAheadDist, totalLen)
   const out = { x: 0, z: 0, yaw: 0, done: false }
   sampleRoute(route, targetS, out)
+  // Right of travel = (cos yaw, -sin yaw).
+  out.x += Math.cos(out.yaw) * LANE_OFFSET
+  out.z -= Math.sin(out.yaw) * LANE_OFFSET
   return {
     x: out.x,
     z: out.z,
     yaw: out.yaw,
     dist: Math.min(lookAheadDist, totalLen - progress),
   }
+}
+
+/**
+ * PROJECT the car's actual XZ onto the route near a guessed arc-length
+ * (`sGuess`, searched within ±PROJ_WINDOW metres). Returns the corrected arc
+ * length. This replaces dead-reckoned progress (`progress += speed*dt`), which
+ * desyncs from reality after any bump or avoidance push — then the look-ahead
+ * target pointed somewhere else entirely and cars wandered off the road.
+ */
+const PROJ_WINDOW = 14
+const PROJ_STEP = 2
+const projectOnRoute = (route, x, z, sGuess) => {
+  if (!route || route.length < 2) return sGuess
+  let bestS = sGuess
+  let bestD = Infinity
+  let acc = 0
+  const lo = sGuess - PROJ_WINDOW
+  const hi = sGuess + PROJ_WINDOW
+  for (let i = 0; i < route.length - 1; i += 1) {
+    const ax = route[i][0]
+    const az = route[i][1]
+    const dx = route[i + 1][0] - ax
+    const dz = route[i + 1][1] - az
+    const segLen = Math.hypot(dx, dz)
+    if (segLen < 1e-6) continue
+    const sLo = Math.max(acc, lo)
+    const sHi = Math.min(acc + segLen, hi)
+    if (sLo < sHi) {
+      const steps = Math.max(1, Math.ceil((sHi - sLo) / PROJ_STEP))
+      for (let k = 0; k <= steps; k += 1) {
+        const s = sLo + (sHi - sLo) * (k / steps)
+        const f = (s - acc) / segLen
+        const px = ax + dx * f
+        const pz = az + dz * f
+        const d = (px - x) * (px - x) + (pz - z) * (pz - z)
+        if (d < bestD) { bestD = d; bestS = s }
+      }
+    }
+    acc += segLen
+  }
+  return bestD < Infinity ? bestS : sGuess
 }
 
 /**
@@ -807,8 +857,12 @@ const AiCar = ({ route, seed, index = 0 }) => {
       wantSpeed *= 0.6
     }
 
-    // Apply smoothed steering
-    const steerInput = Math.max(-maxTurn, Math.min(maxTurn, proportional + derivative))
+    // Apply smoothed steering. No gas = no turn (same rule as the player's
+    // car): the yaw rate scales with actual rolling speed, so a stationary or
+    // braking-to-stop AI car holds its heading instead of pivoting in place.
+    const steerInputRaw = Math.max(-maxTurn, Math.min(maxTurn, proportional + derivative))
+    const rolling = Math.min(1, Math.abs(s.current.speed) / 2)
+    const steerInput = steerInputRaw * rolling
     s.current.yaw += steerInput * dt * 12
 
     // Speed control with smoother acceleration
@@ -831,25 +885,13 @@ const AiCar = ({ route, seed, index = 0 }) => {
     const sinY = Math.sin(s.current.yaw / 2)
     rb.setRotation({ x: 0, y: sinY, z: 0, w: c }, true)
 
-    // Update progress along route
-    const moveAlign = dirX * Math.sin(desiredYaw) + dirZ * Math.cos(desiredYaw)
-    
-    if (distToRoute < AI_RECOVER_DIST) {
-      if (moveAlign > 0.3) {
-        const progressRate = s.current.speed * dt * (0.8 + moveAlign * 0.2)
-        s.current.progress += progressRate
-        if (s.current.progress > s.current.totalLen) {
-          s.current.progress -= s.current.totalLen
-        }
-      }
-    } else {
-      s.current.progress += s.current.speed * dt * 0.2
-      if (s.current.progress > s.current.totalLen) {
-        s.current.progress -= s.current.totalLen
-      }
+    // Update progress along route: PROJECT the car's real position onto the
+    // route every frame (dead-reckoning desynced after bumps/avoids and let
+    // cars wander off-road). Wrap at the closed loop length.
+    s.current.progress = projectOnRoute(route, currentX, currentZ, s.current.progress)
+    if (s.current.progress > s.current.totalLen) {
+      s.current.progress -= s.current.totalLen
     }
-
-    // Update progress along route (only when close to route)
 
     // Update live state for other systems
     setAiLive(index, currentX, currentZ)
@@ -861,6 +903,10 @@ const AiCar = ({ route, seed, index = 0 }) => {
         live.yaw = s.current.yaw
       }
     } catch { /* ignore */ }
+    // Visual state for CarWheels (spin/steer/brake lights) — AI braking is
+    // decelerating (or waiting on the player).
+    const aiBraking = speedError < -0.5 || wantSpeed < 0.5
+    try { setAnimAi(index, s.current.speed, steerInputRaw, aiBraking) } catch { /* noop */ }
 
     // Update visual group position
     if (gRef.current) {
@@ -889,6 +935,8 @@ const AiCar = ({ route, seed, index = 0 }) => {
       <group position={[0, 0, 0]}>
         <Suspense fallback={null}>
           <CarModel id={carId} />
+          {/* Same spinning wheels + brake lights as the player's car */}
+          <CarWheels half={[half[0] + 0.05, half[1] + 0.05, half[2] + 0.05]} carId={carId} aiIndex={index} />
         </Suspense>
       </group>
     </group>

@@ -5,6 +5,8 @@ import { CAR_COLLISION_GROUPS, HALF, HIT_FORCE_MIN } from './constants.js'
 import { crash, crashHitFromPayload, setRigidBodyType } from './crashManager.js'
 import { normalizeId } from './utils/misc.js'
 import { CarModel } from './CarModel.jsx'
+import { CarAnim } from './CarAnim.jsx'
+import { CarWheels } from './CarWheels.jsx'
 
 export const Car = React.memo(function Car({
   id = 'sedan',
@@ -95,10 +97,16 @@ export const Car = React.memo(function Car({
       onCollisionEnter={spotIndex != null ? onHit : undefined}
       onContactForce={spotIndex != null ? onForce : undefined}
     >
-      <CuboidCollider args={half} position={[0, half[1], 0]} friction={0.7} density={40} restitution={0.20} />
+      <CuboidCollider args={half} position={[0, half[1], 0]} friction={0.7} density={40} restitution={0.02} />
       <group ref={modelRef}>
         <Suspense fallback={null}>
-          <CarModel id={key} damage={dmg} seed={dentSeed.current} />
+          <CarAnim half={half} carId={key} damage={dmg} spotIndex={spotIndex}>
+            <CarModel id={key} damage={dmg} seed={dentSeed.current} />
+            {/* Wheels/brake-light overlays only on the DRIVEN car (dynamic prop
+                flips when the player enters). 26 parked cars would otherwise
+                add hundreds of static draw calls for wheels that never spin. */}
+            {dynamic && <CarWheels half={half} carId={key} spotIndex={spotIndex} />}
+          </CarAnim>
         </Suspense>
       </group>
     </RigidBody>

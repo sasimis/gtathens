@@ -82,6 +82,7 @@ def parse_osm(file_path):
 
     buildings = []
     roads = []
+    grass = []
     categories = {}
 
     for way in root.iter('way'):
@@ -109,21 +110,26 @@ def parse_osm(file_path):
                 'type': tags.get('highway'),
                 'nodes': [{'lat': lat, 'lon': lon} for lat, lon in coords],
             })
+        elif tags.get('landuse') == 'grass':
+            grass.append({
+                'nodes': [{'lat': lat, 'lon': lon} for lat, lon in coords],
+            })
 
-    return buildings, roads, categories
+    return buildings, roads, grass, categories
 
 
 def main():
-    buildings, roads, categories = parse_osm('map.osm')
+    buildings, roads, grass, categories = parse_osm('map.osm')
     data = {
         'ref': {'lat': REF_LAT, 'lon': REF_LON},
         'buildings': buildings,
         'roads': roads,
+        'grass': grass,
     }
     with open('public/map_data.json', 'w', encoding='utf-8') as f:
         json.dump(data, f, separators=(',', ':'))
 
-    print(f"Found {len(buildings)} buildings and {len(roads)} roads.")
+    print(f"Found {len(buildings)} buildings, {len(roads)} roads, {len(grass)} grass areas.")
     print("Building categories:", json.dumps(categories, sort_keys=True))
 
 

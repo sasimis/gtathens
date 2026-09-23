@@ -110,7 +110,8 @@ const CarEntrance = ({ bodyRef, spots }) => {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.code !== 'KeyF' || e.repeat) return
+      const isEnter = e.code === 'KeyF' || e.code === 'KeyY'
+      if (!isEnter || e.repeat) return
       if (phaseRef.current !== Phase.PLAYING) return
       if (drivingRef.current !== null) return
       if (performance.now() - mountedAt.current < 350) return
@@ -273,7 +274,17 @@ const PlayerBody = ({ spawn }) => {
       if (Math.abs(gpLookX) > 0.001) {
         camYaw.current -= gpLookX * 2.4 * dt
       }
-      if (padEdge(pad, BTN.Y)) cycleCharacter()
+      if (padEdge(pad, BTN.Y)) {
+        // Y enters a nearby car when one is in reach; otherwise it still
+        // cycles the character. (X / LT also enter — see CarEntrance.)
+        const st = useGameStore.getState()
+        if (st.phase === Phase.PLAYING && st.driving === null && st.nearCar >= 0 && performance.now() - mountedAt.current >= 350) {
+          setDriving(st.nearCar)
+          audio.play('door')
+        } else {
+          cycleCharacter()
+        }
+      }
     }
 
     let ix = (keys.rightward ? 1 : 0) - (keys.leftward ? 1 : 0) + gpx
