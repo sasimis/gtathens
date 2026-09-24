@@ -607,9 +607,9 @@ const hullVerts = (b) => {
 const BuildingColliders = ({ buildings }) => {
   const geoms = useMemo(
     () =>
-      buildings.map((b) => {
+      buildings.map((b, idx) => {
         const g = hullVerts(b)
-        return { key: b.x.toFixed(2) + ',' + b.z.toFixed(2), geom: g, x: b.x, z: b.z }
+        return { key: `${b.x.toFixed(2)},${b.z.toFixed(2)}_${idx}`, geom: g, x: b.x, z: b.z }
       }),
     [buildings],
   )
