@@ -236,6 +236,9 @@ const applyCarBullet = (world, handle, x, z, def) => {
     return true
   }
   try {
+    for (let b = 0; b < crash.bodies.length; b += 1) {
+      if (crash.bodies[b] === body) { addDamage(b, amt); return true }
+    }
     const ai = crash.aiBodies
     for (let i = 0; i < ai.length; i += 1) {
       if (ai[i] === body) { addAiDamage(i, amt); return true }
@@ -249,6 +252,13 @@ const applyCarBullet = (world, handle, x, z, def) => {
       const dx = p.x - x
       const dz = p.z - z
       if (dx * dx + dz * dz < METAL_R2) { addAiDamage(i, amt); return true }
+    }
+    for (let i = 0; i < CAR_LIVE_POS.length; i += 1) {
+      const p = CAR_LIVE_POS[i]
+      if (!p || !Number.isFinite(p.x)) continue
+      const dx = p.x - x
+      const dz = p.z - z
+      if (dx * dx + dz * dz < METAL_R2) { addDamage(i, amt); return true }
     }
   } catch { /* noop */ }
   return false
@@ -534,13 +544,13 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
       if (!fireState.mouseDown && !combat.touchFire) fireState.wantFire = false
     }
 
-    // --- gamepad RT (X as a digital fallback) ---
+    // --- gamepad RT (RB / X as fallbacks) ---
     const gp = getGamepad()
     if (gp) {
       combat.assist = true
-      const rt = padValue(gp, BTN.RT) || (padEdge(gp, BTN.X) ? 1 : 0)
-      if (rt > 0.2) fireState.wantFire = true
-      else if (rt <= 0.15 && !fireState.kbWasDown && !fireState.mouseDown && !combat.touchFire) {
+      const rt = padValue(gp, BTN.RT) || padValue(gp, BTN.RB) || (padHeld(gp, BTN.X) ? 1 : 0)
+      if (rt > 0.15) fireState.wantFire = true
+      else if (rt <= 0.1 && !fireState.kbWasDown && !fireState.mouseDown && !combat.touchFire) {
         fireState.wantFire = false
       }
       if (padEdge(gp, BTN.LB)) fireState.reloadEdge = true
@@ -583,6 +593,7 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
     // (0,0) = screen centre, i.e. plain camera-forward. The shooter's own
     // capsule is skipped, so you can never shoot your own back off.
     if (!isFists && gunFX.held) {
+      camera.updateMatrixWorld()
       aimDir.set(mouseAim.nx, mouseAim.ny, 0.5).unproject(camera).sub(camera.position)
       if (aimDir.lengthSq() < 1e-8) aimDir.set(0, 0, -1).applyQuaternion(camera.quaternion)
       aimDir.y = Math.max(-0.85, Math.min(0.85, aimDir.y))
@@ -604,6 +615,20 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
         reticleMax, selfColliderHandle(bodyRef),
       )) {
         aimToi = Math.min(worldHit.toi, reticleMax)
+      }
+      // Check Ped hitboxes along reticle ray to place aimPoint directly on peds
+      const scale = combat.isTouch ? TOUCH_HITBOX_SCALE : 1
+      for (let k = 0; k < NPC_RECORDS.length; k += 1) {
+        const nr = NPC_RECORDS[k]
+        if (!nr || nr.dead || !nr.rb || typeof nr.rb.translation !== 'function') continue
+        let t = null
+        try { t = nr.rb.translation() } catch (e) { continue }
+        if (!t) continue
+        if (pedRayHit(camX, camY, camZ, aimDir.x, aimDir.y, aimDir.z, reticleMax, t.x, t.y, t.z, scale, pedOut)) {
+          if (pedOut.t < aimToi) {
+            aimToi = pedOut.t
+          }
+        }
       }
       aimPoint.set(camX + aimDir.x * aimToi, camY + aimDir.y * aimToi, camZ + aimDir.z * aimToi)
       aimReach = aimToi
@@ -696,6 +721,32 @@ const WeaponController = ({ bodyRef, modelRef, camYaw }) => {
             shotTrace.hits += 1
             shotTrace.impacts += 1
             damagePed(st, nr, 1, wdef, dx / l, dz / l)
+          }
+        } else {
+          // Punch cars in close range
+          for (let i = 0; i < CAR_LIVE_POS.length; i += 1) {
+            const p = CAR_LIVE_POS[i]
+            if (!p) continue
+            const dx = p.x - pt.x
+            const dz = p.z - pt.z
+            if (dx * dx + dz * dz < 4.0) {
+              addDamage(i, 0.05)
+              audio.play('hit')
+              shotTrace.impacts += 1
+              break
+            }
+          }
+          for (let i = 0; i < crash.aiLive.length; i += 1) {
+            const p = crash.aiLive[i]
+            if (!p || !Number.isFinite(p.x)) continue
+            const dx = p.x - pt.x
+            const dz = p.z - pt.z
+            if (dx * dx + dz * dz < 4.0) {
+              addAiDamage(i, 0.05)
+              audio.play('hit')
+              shotTrace.impacts += 1
+              break
+            }
           }
         }
         shotTrace.px = pt.x
