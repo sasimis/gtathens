@@ -1,7 +1,7 @@
 
 import { GROUP_CAR, GROUP_BUILDING, HIT_SPEED_MIN, HIT_FORCE_MIN, HIT_DEBOUNCE_MS, PUSH_MIN, PUSH_MAX } from './constants.js'
 import { audio } from '../../lib/audio'
-import { pushDebris, animState } from './carVisuals.js'
+import { pushDebris, animState, DEBRIS_EXPLOSION } from './carVisuals.js'
 
 // Last crash event per spot: { at, speed, x, y, z } — CarAnim / CarDebrisPool
 // poll this instead of subscribing, so crash FX never re-render React.
@@ -20,6 +20,10 @@ class CrashManager {
   aiDamage = [] // 0..1 per AI car (stolen-car HUD/engine parity)
   aiOccupied = new Set() // AI indices currently stolen by the player
   lastCrash = [] // { at, speed, x, y, z } per spot — crash FX poll target
+  explodedParked = new Set() // spot indices whose damage hit 100% (one-shot boom)
+  explodedAi = new Set() // AI traffic indices whose damage hit 100%
+  explosions = 0 // total booms this session (QA: window.__gtathensBoom.count())
+  lastExplosion = { at: 0, x: 0, y: 0, z: 0 } // stable record, mutated in place
 
   setLive(i, x, z) {
     if (!this.livePos[i]) this.livePos[i] = { x, z }
@@ -46,10 +50,28 @@ class CrashManager {
     this.aiLive.length = 0
     this.aiDamage.length = 0
     this.aiOccupied.clear()
+    this.explodedParked.clear()
+    this.explodedAi.clear()
+    this.explosions = 0
+    this.lastExplosion.at = 0
+    this.lastExplosion.x = 0
+    this.lastExplosion.y = 0
+    this.lastExplosion.z = 0
   }
 }
 
 export const crash = new CrashManager()
+
+// Headless QA seam (scripts/smoke.mjs EXPLOSION TEST). CarDebrisPool MERGES
+// its live `fire()` probe into this object on mount — extend it, never replace
+// (see the seam-merge gotcha in AGENTS.md).
+if (typeof window !== 'undefined') {
+  window.__gtathensBoom = {
+    count: () => crash.explosions,
+    last: () => crash.lastExplosion,
+    exploded: (sys, i) => (sys === 'ai' ? crash.explodedAi : crash.explodedParked).has(i),
+  }
+}
 
 // Compat exports for old code that imports directly
 export const CAR_LIVE_POS = crash.livePos
@@ -67,7 +89,9 @@ export const setAiCarOccupied = (i, v) => {
 }
 export const aiDamage = (i) => Math.min(1, crash.aiDamage[i] ?? 0)
 export const addAiDamage = (i, amt) => {
+  if (i == null || i < 0) return
   crash.aiDamage[i] = Math.min(1, (crash.aiDamage[i] ?? 0) + amt)
+  if (crash.aiDamage[i] >= 1) explodeCar('ai', i)
 }
 // Road-surface helper (asphalt = fast, grass/dirt = slow). Roads.jsx publishes
 // merged road segments into window.__gtathensRoadCache; a point is on asphalt
@@ -121,12 +145,54 @@ export const isBuildingCollider = (c) => {
   try { return (c?.collisionGroups?.() & 0xffff & GROUP_BUILDING) !== 0 } catch { return false }
 }
 
+// ---------------------------------------------------------------------------
+// Car explosion — fires ONCE when a car's damage first reaches 100% (1.0).
+// Event-driven only (called from addDamage / addAiDamage, never per frame):
+// pumps one kind-3 event into the carVisuals debris queue (<CarDebrisPool>
+// turns it into the fireball + dark smoke + flash light), plays the boom and
+// records the QA state. The Sets make it idempotent — every later damage tick
+// is a no-op because addDamage clamps at 1 and returns early.
+// ---------------------------------------------------------------------------
+const explodeCar = (sys, i) => {
+  const set = sys === 'ai' ? crash.explodedAi : crash.explodedParked
+  if (set.has(i)) return
+  set.add(i)
+  let x = 0, y = 0.6, z = 0
+  try {
+    if (sys === 'ai') {
+      const rb = crash.aiBodies[i]
+      if (rb && typeof rb.translation === 'function') {
+        const t = rb.translation(); x = t.x; y = t.y + 0.5; z = t.z
+      } else {
+        const live = crash.aiLive[i]
+        if (live) { x = live.x; z = live.z }
+      }
+    } else {
+      const rb = crash.bodies[i]
+      if (rb && typeof rb.translation === 'function') {
+        const t = rb.translation(); x = t.x; y = t.y + 0.55; z = t.z
+      } else {
+        const lp = crash.livePos[i]
+        if (lp) { x = lp.x; z = lp.z }
+      }
+    }
+  } catch { /* keep the origin fallback */ }
+  crash.explosions += 1
+  const e = crash.lastExplosion
+  e.at = typeof performance !== 'undefined' ? performance.now() : 0
+  e.x = x; e.y = y; e.z = z
+  try { pushDebris(x, y, z, 0, 0, 0, DEBRIS_EXPLOSION, 26) } catch { /* queue full */ }
+  try { audio.explosion(1) } catch { /* fail-soft */ }
+}
+
 export const addDamage = (i, amount) => {
   if (i == null || i < 0) return
-  const next = Math.min(1, (crash.damage[i] ?? 0) + amount)
-  if (next === crash.damage[i]) return
+  const prev = crash.damage[i] ?? 0
+  const next = Math.min(1, prev + amount)
+  if (next === prev) return
   crash.damage[i] = next
   crash.setters[i]?.(next)
+  if (next >= 1) explodeCar('parked', i)
 }
 
 // ---------------------------------------------------------------------------

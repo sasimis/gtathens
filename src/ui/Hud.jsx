@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import useGameStore from '../store/useGameStore'
+import useGameStore, { TIME_PRESETS } from '../store/useGameStore'
 import { StationLogo } from '../components/RadioLogos'
 
 // Minimal HUD: ONE combined clock + cash chip (top-right) + the F prompt.
@@ -57,6 +57,8 @@ const Hud = () => {
   const nearCar = useGameStore((s) => s.nearCar)
   const nearAiCar = useGameStore((s) => s.nearAiCar)
   const gameTime = useGameStore((s) => s.gameTime ?? 8)
+  const timePreset = useGameStore((s) => s.timePreset)
+  const cycleTimePreset = useGameStore((s) => s.cycleTimePreset)
   const money = useGameStore((s) => s.money ?? 0)
   const carDamage = useGameStore((s) => s.carDamage ?? 0)
   const radioToast = useGameStore((s) => s.radioToast)
@@ -101,10 +103,21 @@ const Hud = () => {
   const hours = Math.floor(gameTime)
   const minutes = Math.floor((gameTime % 1) * 60)
   const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+  // Time-shift button shows the NEXT preset it will jump to on click.
+  const nextPreset = TIME_PRESETS[(timePreset + 1) % TIME_PRESETS.length]
 
   return (
     <>
       <div className="hud-chip hud-status">
+        <button
+          type="button"
+          className="hud-timebtn"
+          title={`Shift time → ${nextPreset.label} ${String(nextPreset.hour).padStart(2, '0')}:00 (cycles Day → Evening → Night → Dawn)`}
+          onClick={cycleTimePreset}
+        >
+          <span className="hud-timebtn-icon">{nextPreset.icon}</span>
+          {nextPreset.label}
+        </button>
         <span className="hud-status-time">{timeString}</span>
         <span className="hud-status-sep" />
         <span className="hud-status-cash">${money}</span>

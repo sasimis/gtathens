@@ -78,7 +78,13 @@ export const hasLostPart = (damage = 0, part = '') => {
 // Debris event queue — crashManager pushes, <CarDebrisPool> drains.
 // Fixed ring buffer (64 slots), zero allocation after init. Each event is a
 // flat object reused in place: { x,y,z, vx,vy,vz, kind, n }.
-// kind: 0 = bumper chunk, 1 = glass/mirror spark, 2 = smoke puff.
+// kind: 0 = bumper chunk, 1 = glass/mirror spark, 2 = smoke puff,
+//       3 = EXPLOSION (CarDebrisPool spawns the fireball + dark-smoke burst,
+//           flash light and the lingering wreck fire from this one event).
+export const DEBRIS_CHUNK = 0
+export const DEBRIS_SPARK = 1
+export const DEBRIS_SMOKE = 2
+export const DEBRIS_EXPLOSION = 3
 // ---------------------------------------------------------------------------
 const DEBRIS_CAP = 64
 export const debrisQueue = {

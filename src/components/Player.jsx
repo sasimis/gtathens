@@ -5,7 +5,7 @@ import { useKeyboardControls, KeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
 import useGameStore, { Phase } from '../store/useGameStore'
 import Protagonist, { CHARACTERS } from './Protagonist'
-import { CAR_LIVE_POS, PARK_COUNT, PARK_RADIUS, PLAYER_COLLISION_GROUPS, useParkingSpots, isOnAsphalt } from './Car'
+import { CAR_LIVE_POS, PARK_COUNT, PARK_RADIUS, PLAYER_COLLISION_GROUPS, useParkingSpots, isOnAsphalt, crash } from './Car'
 import { CameraRig, OrbitInput } from './FollowCamera'
 import { BTN, getGamepad, padEdge, padHeld, readStick } from '../lib/gamepad'
 import { audio } from '../lib/audio'
@@ -80,7 +80,8 @@ const CarEntrance = ({ bodyRef, spots }) => {
         const lp = CAR_LIVE_POS[i]
         return lp ? lp.z : spots[i].position[2]
       }
-      if (nearRef.current >= 0 && nearRef.current < spots.length) {
+      if (nearRef.current >= 0 && nearRef.current < spots.length
+        && !crash.explodedParked.has(nearRef.current)) {
         const dx = pos.current.x - spotX(nearRef.current)
         const dz = pos.current.z - spotZ(nearRef.current)
         if (dx * dx + dz * dz < ENTER_EXIT_RANGE_SQ) return
@@ -88,6 +89,7 @@ const CarEntrance = ({ bodyRef, spots }) => {
       let best = -1
       let bestD = ENTER_RANGE_SQ
       for (let i = 0; i < spots.length; i++) {
+        if (crash.explodedParked.has(i)) continue // burning wreck — not enterable
         const dx = pos.current.x - spotX(i)
         const dz = pos.current.z - spotZ(i)
         const d = dx * dx + dz * dz

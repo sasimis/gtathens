@@ -53,7 +53,8 @@ import {
   IMPACT_FLESH,
 } from './BulletFx'
 import { NPC_RECORDS } from './Npcs'
-import { CAR_LIVE_POS, crash } from './Car'
+import { CAR_LIVE_POS, crash, addDamage, addAiDamage } from './Car'
+import { isCarCollider } from './car-modules/crashManager.js'
 import { audio } from '../lib/audio'
 
 // --- module scratch (no allocation inside useFrame) -------------------------
@@ -212,6 +213,48 @@ const surfaceKind = (x, y, z) => {
 }
 
 /**
+ * Bullet -> car damage. The world ray already stopped ON the hit collider, so
+ * resolve it exactly: parent body -> crash.bodyToSpot (parked / driven car),
+ * then the AI traffic registry (aiBodies, else nearest live position). Ground
+ * and building hits fail isCarCollider and return false, so there is no
+ * "chipped the wall next to the car" damage leak. Amount scales with the
+ * weapon (rifle > pistol > SMG per hit) and caps per bullet —
+ * ~15-25 solid hits to a parked car reaches the 100% explosion threshold.
+ * Fists use the melee branch and never get here.
+ */
+const applyCarBullet = (world, handle, x, z, def) => {
+  let col = null
+  try { col = world && typeof world.getCollider === 'function' ? world.getCollider(handle) : null } catch { col = null }
+  let body = null
+  try { body = col && typeof col.parent === 'function' ? col.parent() : null } catch { body = null }
+  if (!body || !col || !isCarCollider(col)) return false
+  const amt = Math.min(0.1, 0.015 + (def.damage || 15) * 0.0018)
+  let spot = null
+  try { spot = crash.bodyToSpot.get(body) } catch { spot = null }
+  if (spot != null && spot >= 0) {
+    addDamage(spot, amt)
+    return true
+  }
+  try {
+    const ai = crash.aiBodies
+    for (let i = 0; i < ai.length; i += 1) {
+      if (ai[i] === body) { addAiDamage(i, amt); return true }
+    }
+    // Fallback (AI bodies registered lazily): impact sits ON the car, so the
+    // nearest live traffic position within the metal radius must be its owner.
+    const live = crash.aiLive
+    for (let i = 0; i < live.length; i += 1) {
+      const p = live[i]
+      if (!p || !Number.isFinite(p.x)) continue
+      const dx = p.x - x
+      const dz = p.z - z
+      if (dx * dx + dz * dz < METAL_R2) { addAiDamage(i, amt); return true }
+    }
+  } catch { /* noop */ }
+  return false
+}
+
+/**
  * Damage + reaction on a ped. Kinematic peds cannot take a real impulse, so the
  * "hit reaction" is a stagger Npcs.jsx consumes (flinchT/flinchX/flinchZ/
  * flinchSpeed) plus the weapon's headshot multiplier.
@@ -350,6 +393,9 @@ const fireBullet = (ctx, st, def, ox, oy, oz, dx, dy, dz, fxOnce, damageOnce) =>
     shotTrace.toi = wallT
     shotTrace.kind = kind
     shotTrace.impacts += 1
+    // Car damage: only when the ray actually stopped on a car collider
+    // (exact body resolution inside — never the surface-kind heuristic).
+    try { applyCarBullet(world, worldHit.handle, worldHit.x, worldHit.z, def) } catch { /* noop */ }
   } else {
     // Clean miss: keep the previous impact point so the QA trail still shows
     // what the last round actually struck (toi/kind say "miss").

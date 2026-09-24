@@ -121,6 +121,57 @@ export const grassPolygons = (data) =>
     .map((g) => (g.nodes || []).map((n) => [lonToWorldX(n.lon), latToWorldZ(n.lat)]))
     .filter((poly) => poly.length >= 3)
 
+/**
+ * Named OSM areas (place=* — neighbourhood polygons / city points) in world
+ * space, for the StreetHUD label fallback when the player is off a named
+ * road. Returns [{name, x, z, r, poly}] — x/z = centroid, r = label radius
+ * (polygon: max vertex distance + 30 m slack; single-node place: 800 m).
+ * Labels are road names + area names only — never road-class strings
+ * ("Service Rd"); StreetHUD is the only consumer so far.
+ */
+export const areaLabels = (data) => {
+  const out = []
+  for (const a of data.areas || []) {
+    const pts = (a.nodes || []).map((n) => [lonToWorldX(n.lon), latToWorldZ(n.lat)])
+    if (!a.name || !pts.length) continue
+    if (pts.length < 3) {
+      out.push({ name: a.name, x: pts[0][0], z: pts[0][1], r: 800, poly: null })
+      continue
+    }
+    let cx = 0
+    let cz = 0
+    for (let i = 0; i < pts.length; i += 1) {
+      cx += pts[i][0]
+      cz += pts[i][1]
+    }
+    cx /= pts.length
+    cz /= pts.length
+    let r = 40
+    for (let i = 0; i < pts.length; i += 1) {
+      r = Math.max(r, Math.hypot(pts[i][0] - cx, pts[i][1] - cz))
+    }
+    out.push({ name: a.name, x: cx, z: cz, r: r + 30, poly: pts })
+  }
+  return out
+}
+
+/** Area label at (x, z): containing polygon wins, else nearest area whose
+ * radius reaches the point, else null (StreetHUD falls back to 'Off-road'). */
+export const areaLabelAt = (areas, x, z) => {
+  let best = null
+  let bestD = Infinity
+  for (let i = 0; i < areas.length; i += 1) {
+    const a = areas[i]
+    if (a.poly && pointInPolygon(x, z, a.poly)) return a.name
+    const d = Math.hypot(x - a.x, z - a.z)
+    if (d <= a.r && d < bestD) {
+      bestD = d
+      best = a.name
+    }
+  }
+  return best
+}
+
 /** Deterministic pseudo-random in [0, 1) from an integer seed. */
 export const hash01 = (i) => {
   let h = (i * 2654435761) >>> 0

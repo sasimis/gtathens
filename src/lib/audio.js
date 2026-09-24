@@ -288,6 +288,57 @@ export const screech = (intensity = 1) => {
   } catch { /* silent */ }
 }
 
+// --- Car explosion: synth boom (no /sounds asset — always available) --------
+// A low-passed white-noise body (the blast wave closing from crack to rumble)
+// plus a sub sine thump (the chest punch). Same fail-soft contract as screech:
+// no running AudioContext = silent no-op, the game never crashes for sound.
+let boomNoise = null
+export const explosion = (intensity = 1) => {
+  try {
+    const ctx = Howler.ctx
+    if (!ctx || ctx.state !== 'running') return
+    const v = Math.max(0, Math.min(1, intensity)) * 0.55 * master.v
+    if (v <= 0) return
+    const now = ctx.currentTime
+    const pitch = 0.9 + Math.random() * 0.25
+    if (!boomNoise) {
+      const len = Math.floor(ctx.sampleRate * 1.2)
+      boomNoise = ctx.createBuffer(1, len, ctx.sampleRate)
+      const d = boomNoise.getChannelData(0)
+      for (let k = 0; k < len; k += 1) d[k] = (Math.random() * 2 - 1) * (1 - k / len)
+    }
+    // Blast body: noise through a fast-closing lowpass (bright crack -> rumble).
+    const src = ctx.createBufferSource()
+    src.buffer = boomNoise
+    src.playbackRate.value = pitch
+    const lp = ctx.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.setValueAtTime(2400, now)
+    lp.frequency.exponentialRampToValueAtTime(90, now + 0.9)
+    lp.Q.value = 0.8
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(v, now)
+    g.gain.exponentialRampToValueAtTime(0.001, now + 1.1)
+    src.connect(lp)
+    lp.connect(g)
+    g.connect(ctx.destination)
+    src.start(now)
+    src.stop(now + 1.2)
+    // Sub thump: 82 -> 30 Hz sine for the punch you feel in your teeth.
+    const osc = ctx.createOscillator()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(82 * pitch, now)
+    osc.frequency.exponentialRampToValueAtTime(30, now + 0.45)
+    const og = ctx.createGain()
+    og.gain.setValueAtTime(v * 1.1, now)
+    og.gain.exponentialRampToValueAtTime(0.001, now + 0.55)
+    osc.connect(og)
+    og.connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.6)
+  } catch { /* silent */ }
+}
+
 let lastHornAt = 0
 export const trafficHorn = (nearCount = 0) => {
   const now = typeof performance !== 'undefined' ? performance.now() : 0
@@ -366,6 +417,8 @@ export const audio = {
   bedsUpdate,
   setListenerXZ,
   crash: (dmg01) => play2D('crash', 0.9 + Math.random() * 0.2, 0.5 + Math.min(1, dmg01) * 0.6),
+  /** Car explosion — synth boom, see explosion() above. */
+  explosion,
   engineUpdate,
   initPositional,
   qa: {

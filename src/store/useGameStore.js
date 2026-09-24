@@ -28,6 +28,16 @@ export const CAM_VIEWS = [
   { id: 'far', label: 'Far', distance: 12.5, height: 5.0, pitch: 0.36 },
 ]
 
+// Time-of-day presets for the HUD time-shift button (order = cycle order).
+// `hour` lands on a visually distinct phase of DayNightCycle's sky phases:
+// day (8-17), sunset blend (18-20), full night + stars (20-5), sunrise (5-7).
+export const TIME_PRESETS = [
+  { id: 'day', label: 'Day', icon: '☀️', hour: 10 },
+  { id: 'evening', label: 'Evening', icon: '🌆', hour: 19 },
+  { id: 'night', label: 'Night', icon: '🌙', hour: 23 },
+  { id: 'dawn', label: 'Dawn', icon: '🌅', hour: 6 },
+]
+
 const useGameStore = create(
   persist(
     (set, get) => ({
@@ -61,6 +71,14 @@ const useGameStore = create(
       // Crash damage 0..1 of the car currently being driven (HUD chip).
       // Transient — never persisted; CarDriver resyncs it change-gated.
       carDamage: 0,
+
+      // --- Time-shift request (HUD clock button, session-only) -------------
+      // timePreset = index of the last APPLIED TIME_PRESETS entry (the button
+      // shows the NEXT one); timeJump is a one-shot request DayNightCycle
+      // consumes in useFrame (seq guard => never applied twice). Never
+      // persisted (partialize keeps settings only).
+      timePreset: 0,
+      timeJump: { seq: 0, hour: TIME_PRESETS[0].hour },
 
       // Transient radio UI state (never persisted)
       radioOpen: false,
@@ -232,6 +250,16 @@ const useGameStore = create(
       setHitAt: (t) => set({ hitAt: t }),
       addKill: () => set((s) => ({ killCount: (s.killCount || 0) + 1 })),
       setGameTime: (t) => set({ gameTime: t }),
+      // Advance to the next TIME_PRESETS entry and request the jump. The
+      // seq++ is what tells DayNightCycle "there is a fresh request".
+      cycleTimePreset: () =>
+        set((s) => {
+          const next = (s.timePreset + 1) % TIME_PRESETS.length
+          return {
+            timePreset: next,
+            timeJump: { seq: s.timeJump.seq + 1, hour: TIME_PRESETS[next].hour },
+          }
+        }),
       // Decrements the weapon-change cooldown by dt; caller drives the rate.
       drainWeaponChange: (dt) =>
         set((s) => ({ weaponChangeLeft: Math.max(0, s.weaponChangeLeft - dt) })),

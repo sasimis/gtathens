@@ -11,11 +11,19 @@ Output (public/map_data.json):
       "nodes": [{"lat": .., "lon": ..}, ...]
     }
   ],
-  "roads": [{"type": "primary", "nodes": [...]}]
+  "roads": [{"type": "primary", "name": "Sideways", "nodes": [...]}],
+  "grass": [{"nodes": [...]}, ...],
+  "areas": [{"name": "Monastiraki", "nodes": [...]}, ...]
 }
 
 Buildings keep their OSM category so the game can spawn a matching Kenney
 City Kit model (commercial / suburban / industrial).
+
+`roads[].name` is the real OSM `name` tag (StreetHUD street chip + banner).
+`areas` = named `place=*` features (neighbourhood polygon / city point) —
+the HUD's label fallback when off a named road. The HUD must NEVER invent
+road-class labels ("Service Rd", "Link", ...): user-facing labels are real
+road names + area names only.
 """
 
 import json
@@ -71,6 +79,13 @@ def parse_number(raw):
     return float(m.group()) if m else None
 
 
+def clean_name(raw):
+    """Whitespace-collapsed OSM street/area name, or None when absent."""
+    if not raw:
+        return None
+    return ' '.join(str(raw).split()) or None
+
+
 def parse_osm(file_path):
     tree = ET.parse(file_path)
     root = tree.getroot()
@@ -83,6 +98,7 @@ def parse_osm(file_path):
     buildings = []
     roads = []
     grass = []
+    areas = []
     categories = {}
 
     for way in root.iter('way'):
@@ -106,30 +122,59 @@ def parse_osm(file_path):
             categories[building['category']] = categories.get(building['category'], 0) + 1
             buildings.append(building)
         elif tags.get('highway'):
-            roads.append({
+            road = {
                 'type': tags.get('highway'),
                 'nodes': [{'lat': lat, 'lon': lon} for lat, lon in coords],
-            })
+            }
+            # Real OSM street name (name / name:en fallback). Drives the
+            # street-change banner + chip (StreetHUD) and the minimap label.
+            name = clean_name(tags.get('name') or tags.get('name:en'))
+            if name:
+                road['name'] = name
+            roads.append(road)
         elif tags.get('landuse') == 'grass':
             grass.append({
                 'nodes': [{'lat': lat, 'lon': lon} for lat, lon in coords],
             })
+        elif tags.get('place'):
+            # Named place (neighbourhood/suburb/city polygon) -> area-label
+            # fallback for the HUD when off a named road.
+            name = clean_name(tags.get('name') or tags.get('name:en'))
+            if name:
+                areas.append({
+                    'name': name,
+                    'nodes': [{'lat': lat, 'lon': lon} for lat, lon in coords],
+                })
 
-    return buildings, roads, grass, categories
+    # Named place POINTS (e.g. place=city markers) -> single-node areas.
+    for node in root.iter('node'):
+        tags = {t.get('k'): t.get('v') for t in node.findall('tag')}
+        if not tags.get('place'):
+            continue
+        name = clean_name(tags.get('name') or tags.get('name:en'))
+        ref = node.get('id')
+        if name and ref in nodes:
+            lat, lon = nodes[ref]
+            areas.append({'name': name, 'nodes': [{'lat': lat, 'lon': lon}]})
+
+    return buildings, roads, grass, areas, categories
 
 
 def main():
-    buildings, roads, grass, categories = parse_osm('map.osm')
+    buildings, roads, grass, areas, categories = parse_osm('map.osm')
     data = {
         'ref': {'lat': REF_LAT, 'lon': REF_LON},
         'buildings': buildings,
         'roads': roads,
         'grass': grass,
+        'areas': areas,
     }
     with open('public/map_data.json', 'w', encoding='utf-8') as f:
         json.dump(data, f, separators=(',', ':'))
 
-    print(f"Found {len(buildings)} buildings, {len(roads)} roads, {len(grass)} grass areas.")
+    named = sum(1 for r in roads if r.get('name'))
+    print(f"Found {len(buildings)} buildings, {len(roads)} roads "
+          f"({named} named), {len(grass)} grass, {len(areas)} named areas.")
     print("Building categories:", json.dumps(categories, sort_keys=True))
 
 

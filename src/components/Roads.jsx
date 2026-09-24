@@ -17,35 +17,16 @@ import { latToWorldZ, lonToWorldX } from '../lib/geo'
 export const roadWidthFor = (type) => ROAD_STYLE[type]?.w ?? 6
 
 /**
- * Human-readable street label for an OSM road type. map_data.json carries no
- * name tags, so the HUD derives a stable label from the road class instead
- * (e.g. "Primary Rd", "Residential St"). Unknown types → "Unnamed Road".
- * Single source of truth — StreetHUD.jsx imports this; never duplicate the
- * table elsewhere.
+ * Real OSM street name for a road segment (or a whole road object): the
+ * `name` tag when the way has one (map_data.json carries it — see
+ * parse_map.py), `null` otherwise. NO road-class fallback ("Service Rd",
+ * "Primary Link", ...) — StreetHUD shows road names + area names only
+ * (area fallback: lib/worldData.areaLabels).
  */
-const STREET_LABELS = {
-  motorway: 'Motorway',
-  motorway_link: 'Motorway Link',
-  trunk: 'Trunk Rd',
-  trunk_link: 'Trunk Link',
-  primary: 'Primary Rd',
-  primary_link: 'Primary Link',
-  secondary: 'Secondary Rd',
-  secondary_link: 'Secondary Link',
-  tertiary: 'Tertiary St',
-  residential: 'Residential St',
-  unclassified: 'Unnamed Road',
-  living_street: 'Living St',
-  service: 'Service Rd',
-  pedestrian: 'Pedestrian Way',
-  footway: 'Footpath',
-  path: 'Path',
-  track: 'Track',
-  cycleway: 'Cycleway',
-  steps: 'Steps',
-  busway: 'Busway',
+export const streetLabelFor = (typeOrRoad) => {
+  const name = typeof typeOrRoad === 'object' && typeOrRoad !== null ? typeOrRoad.name : null
+  return typeof name === 'string' && name.trim() ? name.trim() : null
 }
-export const streetLabelFor = (type) => STREET_LABELS[type] ?? 'Unnamed Road'
 
 const ROAD_STYLE = {
   motorway: { w: 16, bucket: 'major' },
@@ -82,9 +63,11 @@ const BUCKETS = [
  * — a 2 m footway is not a drivable surface, so counting it would hand cars
  * full speed on the pavement.
  *
- * One flat array of stable {ax, az, bx, bz, w} objects, built ONCE per road
- * data load; the consumer does a throttled point-segment test, so nothing here
- * runs per frame.
+ * One flat array of stable {ax, az, bx, bz, w, type, name} objects, built ONCE
+ * per road data load; the consumer does a throttled point-segment test, so
+ * nothing here runs per frame. `name` is the real OSM street name when the
+ * way has one (see parse_map.py); unnamed ways carry name:null — the HUD
+ * falls back to the area label (no road-class strings).
  */
 export const publishRoadSegments = (roads) => {
   const segs = []
@@ -101,9 +84,12 @@ export const publishRoadSegments = (roads) => {
       const bz = latToWorldZ(b.lat)
       // Skip zero-length stubs (they'd make a degenerate point-segment test).
       if (Math.abs(bx - ax) < 1e-6 && Math.abs(bz - az) < 1e-6) continue
-      // `type` rides along so the street-name HUD can label the nearest
-      // segment without a second OSM walk (map_data.json has no name tags).
-      segs.push({ ax, az, bx, bz, w, type: road.type })
+      // `type` + `name` ride along so the street-name HUD can label the
+      // nearest segment without a second OSM walk. `name` is the real OSM
+      // street name when the way has one (see parse_map.py); unnamed ways
+      // carry name:null — the HUD falls back to the area label, never to a
+      // road-class string.
+      segs.push({ ax, az, bx, bz, w, type: road.type, name: road.name ?? null })
     }
   }
   if (typeof window !== 'undefined') window.__gtathensRoadCache = { segs }

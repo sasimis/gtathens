@@ -19,6 +19,7 @@ import {
 import useGameStore, { Phase } from '../store/useGameStore'
 import { NPC_HP } from '../lib/weapons'
 import { getRoadPathfinder, sampleRoute, polylineLength } from '../lib/RoadPathfinder'
+import { coverageOf, planCoverageRoutes, rerouteLoop } from '../lib/trafficRoutes'
 import { navPath, navRandomPointAround } from '../lib/navmesh'
 import { navRuntime } from './CityNavMesh'
 import { spawnDrop } from './Pickups'
@@ -44,13 +45,21 @@ import Protagonist, { CHARACTERS } from './Protagonist'
 
 export const PED_COUNT = 10
 export const PED_RADIUS = 200
-export const AI_CAR_COUNT = 8
+// 16 (was 5/8): coverage-greedy route planning + per-lap re-routing (see
+// lib/trafficRoutes.js + buildAiRoutes/tryReroute below) make extra cars
+// cheap — they spread over the whole road graph instead of stacking on a few
+// circuits. Each is one dynamic body + KayKit model; expect ~+8 Rapier bodies
+// vs the old 8-car fleet in the smoke report, fps should hold.
+export const AI_CAR_COUNT = 16
 export const AI_CAR_RADIUS = 280
 export const NPC_KILL_TOAST = 'Ped down - cash dropped'
 export const NPC_RECORDS = []
 export const AI_CAR_STATE = []
 // Module-level storage for AI routes (for debug visualization)
 export const AI_ROUTES = []
+// Live pathfinder for AiCar per-lap re-routing (set by buildAiRoutes; stays
+// null only when routing itself failed and the legacy walker took over).
+let aiPathfinder = null
 for (let i = 0; i < PED_COUNT; i += 1) {
   NPC_RECORDS.push({ i, kind: 'ped', hp: NPC_HP, dead: false, deadAt: 0, killer: null, rb: null })
 }
@@ -99,6 +108,34 @@ export const npcsQA = {
       }
     }
     return best
+  },
+  /**
+   * Live AI-traffic census for scripts/smoke.mjs (TRAFFIC TEST): plain
+   * {i, x, z, speed} per mounted traffic car, read from the crash singleton's
+   * aiLive records (mutated per frame by AiCar — no React involved).
+   */
+  traffic: () => {
+    const out = []
+    for (let i = 0; i < AI_CAR_STATE.length; i += 1) {
+      const l = crash.aiLive[i]
+      if (!l || !Number.isFinite(l.x)) continue
+      out.push({ i, x: l.x, z: l.z, speed: Number.isFinite(l.speed) ? l.speed : 0 })
+    }
+    return out
+  },
+  /** Fleet route stats: loops, total metres, distinct-road coverage 0..1. */
+  routeStats: () => {
+    if (AI_ROUTES.length === 0) return null
+    let total = 0
+    for (let i = 0; i < AI_ROUTES.length; i += 1) total += polylineLength(AI_ROUTES[i])
+    const cov = aiPathfinder ? coverageOf(aiPathfinder, AI_ROUTES) : null
+    return {
+      routes: AI_ROUTES.length,
+      totalM: Math.round(total),
+      edges: cov ? cov.edges : 0,
+      covered: cov ? cov.covered : 0,
+      coverage: cov ? Number(cov.fraction.toFixed(3)) : null,
+    }
   },
 }
 if (typeof window !== 'undefined') window.__gtathensNpcs = npcsQA
@@ -174,27 +211,32 @@ const buildPedSpawns = (data, spawn, count) => {
 }
 
 const buildAiRoutes = (data, spawn, count) => {
-  // Loop routes via A* on the ROAD GRAPH (lib/RoadPathfinder.js — the same
-  // graph GPS/minimap will use). randomRoute(seed) picks two junctions
-  // deterministically, routes start->goal->start, and returns a CLOSED loop,
-  // so the car laps a real circuit through live traffic instead of an
-  // isolated random walk that used to dead-end on fragmented junctions.
-  // Fallback: the old straight-preference random walk, if routing can't
-  // produce a loop (e.g. a stub map with no connected junctions).
+  // FLEET planning via lib/trafficRoutes.js on the ROAD GRAPH (the same
+  // graph GPS/minimap will use): build a pool of A* loops (randomRoute with
+  // mixed short/long profiles), then GREEDILY pick `count` of them to
+  // maximise distinct-road coverage + spawn-point spread — so traffic shows
+  // up all over the city instead of stacking on a few favourite circuits.
+  // The picked edges register into the planner's usage set, which later
+  // biases each car's per-lap re-route (tryReroute in AiCar) onto roads the
+  // fleet has not driven yet.
+  // Fallback: legacy straight-preference random walk if routing can't
+  // produce a single loop (e.g. a stub map with no connected junctions).
   let pf = null
   try {
     pf = getRoadPathfinder(data, 'drivable')
   } catch (e) {
     pf = null
   }
+  aiPathfinder = pf
   if (pf && pf.size > 4) {
-    const routes = []
-    for (let k = 0; k < count; k += 1) {
-      const r = pf.randomRoute(k * 977 + 13)
-      if (r && r.points.length >= 3) routes.push(r.points)
+    let routes = []
+    try {
+      routes = planCoverageRoutes(pf, count)
+    } catch (e) {
+      routes = []
     }
     if (routes.length > 0) {
-      // Store routes for debug visualization
+      // Store routes for debug visualization ('T' overlay)
       AI_ROUTES.length = 0
       for (const r of routes) AI_ROUTES.push(r)
       return routes
@@ -322,10 +364,21 @@ const findNearestOnRoute = (route, x, z) => {
  * The target is pushed into the RIGHT-HAND LANE (traffic keeps right of the
  * centerline the way the OSM ways are drawn).
  */
-const LANE_OFFSET = 2.2
+const LANE_OFFSET = 1.1
 
 const getLookAheadTarget = (route, progress, lookAheadDist, totalLen) => {
-  const targetS = Math.min(progress + lookAheadDist, totalLen)
+  const span = totalLen > 0 ? totalLen : polylineLength(route)
+  // Closed loops wrap: progress + look-ahead past the seam continues at s=0.
+  // The old Math.min() clamped at the seam, so the target froze at the last
+  // point for ~10 m and the car swerved on every lap reset.
+  let targetS = progress + lookAheadDist
+  if (span > 1e-6) {
+    targetS %= span
+    if (targetS < 0) targetS += span
+  } else {
+    targetS = Math.min(targetS, span)
+  }
+  const dist = span > 1e-6 ? lookAheadDist : Math.min(lookAheadDist, span - progress)
   const out = { x: 0, z: 0, yaw: 0, done: false }
   sampleRoute(route, targetS, out)
   // Right of travel = (cos yaw, -sin yaw).
@@ -335,7 +388,7 @@ const getLookAheadTarget = (route, progress, lookAheadDist, totalLen) => {
     x: out.x,
     z: out.z,
     yaw: out.yaw,
-    dist: Math.min(lookAheadDist, totalLen - progress),
+    dist,
   }
 }
 
@@ -348,13 +401,17 @@ const getLookAheadTarget = (route, progress, lookAheadDist, totalLen) => {
  */
 const PROJ_WINDOW = 14
 const PROJ_STEP = 2
-const projectOnRoute = (route, x, z, sGuess) => {
+const projectOnRoute = (route, x, z, sGuess, totalLenHint = 0) => {
   if (!route || route.length < 2) return sGuess
   let bestS = sGuess
   let bestD = Infinity
   let acc = 0
   const lo = sGuess - PROJ_WINDOW
   const hi = sGuess + PROJ_WINDOW
+  // Closed-loop wrap: a car just past the seam (sGuess ~ totalLen) projects
+  // near s=0 and vice versa. Without this the window misses and the
+  // look-ahead target jumps to the stale guess — the "lap-reset swerve".
+  const totalLen = totalLenHint > 0 ? totalLenHint : polylineLength(route)
   for (let i = 0; i < route.length - 1; i += 1) {
     const ax = route[i][0]
     const az = route[i][1]
@@ -362,8 +419,21 @@ const projectOnRoute = (route, x, z, sGuess) => {
     const dz = route[i + 1][1] - az
     const segLen = Math.hypot(dx, dz)
     if (segLen < 1e-6) continue
-    const sLo = Math.max(acc, lo)
-    const sHi = Math.min(acc + segLen, hi)
+    // Seam-aware overlap: test the segment at its raw span AND at ±totalLen
+    // aliases; the first alias overlapping [lo, hi] is the one we sample.
+    // (A car just past the loop seam has sGuess ~ totalLen while the same
+    // asphalt lives near s=0 — a raw-span test misses it entirely.)
+    let sLo = -1
+    let sHi = -1
+    let shift = 0
+    const shifts = totalLen > 1e-6 ? [0, totalLen, -totalLen] : [0]
+    for (let sh = 0; sh < shifts.length && sLo < 0; sh += 1) {
+      const a = acc + shifts[sh]
+      const b = acc + segLen + shifts[sh]
+      const oLo = Math.max(a, lo)
+      const oHi = Math.min(b, hi)
+      if (oLo < oHi) { sLo = oLo - shifts[sh]; sHi = oHi - shifts[sh]; shift = shifts[sh] }
+    }
     if (sLo < sHi) {
       const steps = Math.max(1, Math.ceil((sHi - sLo) / PROJ_STEP))
       for (let k = 0; k <= steps; k += 1) {
@@ -372,12 +442,19 @@ const projectOnRoute = (route, x, z, sGuess) => {
         const px = ax + dx * f
         const pz = az + dz * f
         const d = (px - x) * (px - x) + (pz - z) * (pz - z)
-        if (d < bestD) { bestD = d; bestS = s }
+        if (d < bestD) { bestD = d; bestS = s + shift }
       }
     }
     acc += segLen
   }
-  return bestD < Infinity ? bestS : sGuess
+  if (bestD >= Infinity) return sGuess
+  // Normalise back into [0, totalLen) so the wrap check below fires exactly once.
+  if (totalLen > 1e-6) {
+    let n = bestS % totalLen
+    if (n < 0) n += totalLen
+    return n
+  }
+  return bestS
 }
 
 /**
@@ -437,6 +514,13 @@ const computeAvoidSteer = (x, z, yaw, speed, others, index, route) => {
 
     // Check if other car is heading towards us (head-on or merging)
     if (od < AI_AVOID_DIST * 2) {
+      // Own urgency for THIS branch (window = 2x AI_AVOID_DIST): the inner
+      // steering below used to reference the `urgency` const scoped inside
+      // the sibling "car in front" branch — a TDZ ReferenceError the moment
+      // this branch actually ran (two cars in-line 7-14 m apart with a third
+      // beside one of them), which escaped useFrame and froze that frame's
+      // traffic. It would also have been 0 out here anyway (window mismatch).
+      const urgency = Math.max(0, 1 - od / (AI_AVOID_DIST * 2))
       const otherYaw = o.yaw || 0
       const odx2 = x - o.x
       const odz2 = z - o.z
@@ -636,6 +720,13 @@ const AI_AVOID_DIST = 7
 const AI_RECOVER_DIST = 6
 const MAX_STEER_ANGLE = 0.15
 const AI_LOOK_AHEAD_DIST = 10
+// Lateral-accel cap for cornering (m/s^2): v <= sqrt(AI_A_LAT * radius),
+// radius derived from the heading change across the look-ahead span — cars
+// ease off into turns instead of taking every junction at flat cruise.
+const AI_A_LAT = 4.0
+// Stuck detector: still-but-should-move this long (s) => reverse 1.1 s.
+const AI_STUCK_SECS = 2.5
+const AI_REVERSE_SECS = 1.1
 
 // Road awareness: how far off road before we strongly correct
 const OFF_ROAD_PENALTY_DIST = 4
@@ -644,20 +735,52 @@ const OFF_ROAD_SPEED_PENALTY = 0.4  // Speed multiplier when off road
 const AiCar = ({ route, seed, index = 0 }) => {
   const bodyRef = useRef(null)
   const gRef = useRef(null)
-  // State: progress along route as arc-length, position, yaw, speed
+  // State: progress along route as arc-length, position, yaw, speed.
+  // `route` starts as the SPAWN loop prop but lives here: every lap the car
+  // re-plans it (tryReroute below), so all per-frame reads go through
+  // s.current.route — the prop is only the initial circuit.
   const s = useRef({
     progress: 0,
     x: route[0][0],
     z: route[0][1],
     yaw: 0,
     speed: 0,
+    route,
+    lap: 0,
     totalLen: polylineLength(route),
     wobble: Math.random() * 100,
+    stuckT: 0,
+    reverseT: 0,
   })
 
   // Initialize AI live state
   if (!crash.aiLive[index] || !Number.isFinite(crash.aiLive[index].x)) {
     crash.setAiLive(index, s.current.x, s.current.z)
+  }
+
+  // Per-lap re-route: when the car closes a loop, A* a NEW circuit from
+  // where it IS now — scored by unvisited roads (trafficRoutes registry) —
+  // so the fleet keeps covering the city instead of forever repeating the
+  // spawn loop. Failure (graph island, no sane goal) keeps the old loop.
+  const tryReroute = (x, z) => {
+    const pf = aiPathfinder
+    if (!pf || pf.size < 4) return false
+    let next = null
+    try {
+      next = rerouteLoop(pf, x, z, { seed: index * 7919 + s.current.lap * 131 + 17 })
+    } catch (e) {
+      next = null
+    }
+    if (!next || next.length < 3) return false
+    s.current.route = next
+    s.current.totalLen = polylineLength(next)
+    // Full-scan re-projection: the new loop starts at the NEAREST JUNCTION,
+    // which can be up to half a long OSM segment away — the per-frame
+    // ±14 m windowed projection would never find the car from there.
+    const near = findNearestOnRoute(next, x, z)
+    s.current.progress = near ? near.t : 0
+    try { AI_ROUTES[index] = next } catch { /* debug overlay only */ }
+    return true
   }
 
   // Full car roster for AI traffic
@@ -670,19 +793,42 @@ const AiCar = ({ route, seed, index = 0 }) => {
   ]
   const carId = AI_CAR_IDS[Math.abs(seed) % AI_CAR_IDS.length] || 'sedan'
   const half = HALF[carId] || HALF.sedan
-  // Faster cruise speeds with variety (base 10 m/s ≈ 36 km/h)
-  const cruiseMult = 0.9 + (Math.abs(seed) % 100) / 250  // 0.9 to 1.3
+  // Cruise speed variety (base 10 m/s ≈ 36 km/h). The old `(seed % 100)/250`
+  // gave seeds 0..15 (one per car!) near-identical multipliers 0.90-0.96 —
+  // this mixes 0.85-1.24 across the fleet instead.
+  const cruiseMult = 0.85 + ((Math.abs(seed) * 37) % 40) / 100
   const carCruise = AI_CRUISE * cruiseMult
 
   useFrame((state, dtRaw) => {
     const rb = bodyRef.current
     if (!rb || typeof rb.translation !== 'function') return
+    // Register the body once so bullet -> car damage can resolve traffic cars
+    // exactly (crash.bodyToSpot covers parked cars; aiBodies covers these).
+    if (crash.aiBodies[index] !== rb) crash.aiBodies[index] = rb
     const dt = Math.min(dtRaw, 0.05)
     const gs = useGameStore.getState()
     if (gs.phase !== Phase.PLAYING) {
       try { rb.setLinvel({ x: 0, y: 0, z: 0 }, true) } catch (e) { /* noop */ }
       return
     }
+    // Exploded (damage 100%): the fleet stops — burning wreck, no more
+    // routing. FX already fired from addAiDamage's threshold crossing.
+    if (crash.explodedAi.has(index)) {
+      try { rb.setLinvel({ x: 0, y: 0, z: 0 }, true) } catch (e) { /* noop */ }
+      try { setAnimAi(index, 0, 0, false) } catch (e) { /* noop */ }
+      return
+    }
+    // A stolen AI car is driven by CarDriver (drivingAi flow) — never fight
+    // it for the body. (isAiCarOccupied is already imported; the enter path
+    // is half-built, so this is a cheap future-proofing guard, not a live
+    // branch today.)
+    try {
+      if (isAiCarOccupied(index)) return
+    } catch { /* noop */ }
+    // The fleet re-plans this car's loop every lap (tryReroute) — the
+    // `route` prop is only the SPAWN circuit; everything below reads the
+    // live ref.
+    const route = s.current.route
 
     // Get current position from physics
     const tPos = rb.translation()
@@ -748,53 +894,47 @@ const AiCar = ({ route, seed, index = 0 }) => {
     // Check for player proximity - slow down
     let wantSpeed = carCruise
     let offRoadPenalty = 1
+    // Corner speed: cap cruise by lateral acceleration. Heading change across
+    // the look-ahead span gives curvature k = dyaw / dist, radius R = 1/k, so
+    // v <= sqrt(AI_A_LAT * R) — cars ease off into turns/junctions instead of
+    // taking them at flat cruise (which is what made AI traffic look robotic
+    // and swipe wide). Straight road: dyaw ~ 0, no cap.
+    {
+      const laDist = Math.max(4, AI_LOOK_AHEAD_DIST + s.current.speed * 0.3)
+      let dYaw = lookAhead.yaw - currentRouteOut.yaw
+      while (dYaw > Math.PI) dYaw -= Math.PI * 2
+      while (dYaw < -Math.PI) dYaw += Math.PI * 2
+      const absYaw = Math.abs(dYaw)
+      if (absYaw > 0.06) {
+        const radius = Math.min(220, laDist / absYaw)
+        const vCorner = Math.sqrt(AI_A_LAT * radius)
+        if (vCorner < wantSpeed) wantSpeed = vCorner
+      }
+    }
     
     try {
       // Check if on road
       const onRoad = isOnAsphalt(currentX, currentZ)
       if (!onRoad) {
-        // Off road - penalize speed and steer back
+        // Off road - penalize speed and steer back to the road NETWORK.
         offRoadPenalty = OFF_ROAD_SPEED_PENALTY
-        
-        // Find nearest road point to steer towards
-        const roadSegs = window.__gtathensRoadCache?.segs
-        if (roadSegs && roadSegs.length > 0) {
-          let nearestRoadX = currentX
-          let nearestRoadZ = currentZ
-          let nearestRoadDist = Infinity
-          
-          // Sample road segments to find nearest point
-          const sampleSteps = Math.min(roadSegs.length, 20)
-          for (let i = 0; i < sampleSteps; i += 1) {
-            const seg = roadSegs[i]
-            const dx = seg.bx - seg.ax
-            const dz = seg.bz - seg.az
-            const L2 = dx * dx + dz * dz
-            let t = L2 > 0 ? ((currentX - seg.ax) * dx + (currentZ - seg.az) * dz) / L2 : 0
-            t = Math.max(0, Math.min(1, t))
-            const px = seg.ax + dx * t
-            const pz = seg.az + dz * t
-            const d = Math.hypot(px - currentX, pz - currentZ)
-            if (d < nearestRoadDist) {
-              nearestRoadDist = d
-              nearestRoadX = px
-              nearestRoadZ = pz
-            }
-          }
-          
-          // If significantly off road, steer towards nearest road point
-          if (nearestRoadDist > OFF_ROAD_PENALTY_DIST) {
-            const roadDx = nearestRoadX - currentX
-            const roadDz = nearestRoadZ - currentZ
-            const roadDir = Math.atan2(roadDx, roadDz)
-            let roadYawDiff = roadDir - s.current.yaw
-            while (roadYawDiff > Math.PI) roadYawDiff -= Math.PI * 2
-            while (roadYawDiff < -Math.PI) roadYawDiff += Math.PI * 2
-            
-            // Add strong road recovery steering
-            recoverAngle += roadYawDiff * 0.4 * Math.min(1, nearestRoadDist / 10)
-            isOffCourse = true
-          }
+
+        // Nearest road via the graph's spatial index (nearest junction to
+        // this car). The old code scanned only the FIRST 20 segments of
+        // window.__gtathensRoadCache — i.e. roads somewhere else on the map —
+        // so "recovery" steering pointed at arbitrary streets and off-road
+        // cars wandered further off. nearest() ring-searches nearby cells and
+        // falls back to a full scan, so this is both correct and cheap.
+        const nearRoad = aiPathfinder ? aiPathfinder.nearest(currentX, currentZ, 60) : null
+        if (nearRoad && nearRoad.dist > OFF_ROAD_PENALTY_DIST) {
+          const roadDir = Math.atan2(nearRoad.x - currentX, nearRoad.z - currentZ)
+          let roadYawDiff = roadDir - s.current.yaw
+          while (roadYawDiff > Math.PI) roadYawDiff -= Math.PI * 2
+          while (roadYawDiff < -Math.PI) roadYawDiff += Math.PI * 2
+
+          // Add strong road recovery steering
+          recoverAngle += roadYawDiff * 0.4 * Math.min(1, nearRoad.dist / 10)
+          isOffCourse = true
         }
       }
     } catch { /* ignore */ }
@@ -857,6 +997,12 @@ const AiCar = ({ route, seed, index = 0 }) => {
       wantSpeed *= 0.6
     }
 
+    // --- STUCK / REVERSE RECOVERY ---
+    // Blocked (player queue, bumper lock, wall) but the route says GO: after
+    // ~2.5 s of near-zero motion, back up for ~1.1 s, then re-project. The
+    // avoid steer only ever pushes FORWARD, so without this a nose-to-wall
+    // state never resolves.
+
     // Apply smoothed steering. No gas = no turn (same rule as the player's
     // car): the yaw rate scales with actual rolling speed, so a stationary or
     // braking-to-stop AI car holds its heading instead of pivoting in place.
@@ -865,16 +1011,38 @@ const AiCar = ({ route, seed, index = 0 }) => {
     const steerInput = steerInputRaw * rolling
     s.current.yaw += steerInput * dt * 12
 
-    // Speed control with smoother acceleration
-    const speedError = wantSpeed - s.current.speed
+    // --- STUCK / REVERSE RECOVERY ---
+    // Blocked (player queue, bumper lock, wall) but the route says GO: after
+    // ~2.5 s of near-zero motion, back up for ~1.1 s, then re-project. The
+    // avoid steer only ever pushes FORWARD, so without this a nose-to-wall
+    // state never resolves.
+    const wantsToGo = wantSpeed > 1.5
+    const isCrawling = s.current.speed < 0.6
+    if (s.current.reverseT > 0) {
+      s.current.reverseT -= dt
+    } else if (wantsToGo && isCrawling) {
+      s.current.stuckT += dt
+      if (s.current.stuckT > AI_STUCK_SECS) {
+        s.current.reverseT = AI_REVERSE_SECS
+        s.current.stuckT = 0
+      }
+    } else {
+      s.current.stuckT = 0
+    }
+    const reversing = s.current.reverseT > 0
+
+    // Speed control with smoother acceleration (reverse un-wedge: hold a
+    // steady ~2.5 m/s backwards, keep forward logic out of the way).
+    const speedError = reversing ? 2.5 - s.current.speed : wantSpeed - s.current.speed
     s.current.speed += speedError * Math.min(1, dt * AI_ACCEL_TAU)
     s.current.speed = Math.max(0, s.current.speed)
 
-    // Calculate velocity from yaw and speed
+    // Calculate velocity from yaw and speed (reverse gear while un-wedging).
     const dirX = Math.sin(s.current.yaw)
     const dirZ = Math.cos(s.current.yaw)
-    const targetVx = dirX * s.current.speed
-    const targetVz = dirZ * s.current.speed
+    const gear = reversing ? -1 : 1
+    const targetVx = dirX * s.current.speed * gear
+    const targetVz = dirZ * s.current.speed * gear
 
     // Apply velocity
     const v = rb.linvel ? rb.linvel() : { x: 0, y: 0, z: 0 }
@@ -887,10 +1055,19 @@ const AiCar = ({ route, seed, index = 0 }) => {
 
     // Update progress along route: PROJECT the car's real position onto the
     // route every frame (dead-reckoning desynced after bumps/avoids and let
-    // cars wander off-road). Wrap at the closed loop length.
-    s.current.progress = projectOnRoute(route, currentX, currentZ, s.current.progress)
+    // cars wander off-road). Wrap at the closed loop length — and when a lap
+    // closes, re-plan the loop so traffic keeps exploring new roads.
+    // While reversing out of a wedge the projection is meaningless (the car
+    // is moving AWAY from the route) — freeze progress so the look-ahead
+    // target does not jump, then re-project once rolling forward again.
+    if (!reversing) {
+      s.current.progress = projectOnRoute(route, currentX, currentZ, s.current.progress, s.current.totalLen)
+    }
+    if (s.current.progress < 0) s.current.progress += s.current.totalLen
     if (s.current.progress > s.current.totalLen) {
       s.current.progress -= s.current.totalLen
+      s.current.lap += 1
+      tryReroute(currentX, currentZ)
     }
 
     // Update live state for other systems
@@ -901,6 +1078,10 @@ const AiCar = ({ route, seed, index = 0 }) => {
       if (live) {
         live.speed = s.current.speed
         live.yaw = s.current.yaw
+        // QA (npcsQA.traffic / smoke TRAFFIC TEST): lap counter + loop
+        // length let the harness prove cars are re-routing, not just wiggling.
+        live.lap = s.current.lap
+        live.routeLen = s.current.totalLen
       }
     } catch { /* ignore */ }
     // Visual state for CarWheels (spin/steer/brake lights) — AI braking is
@@ -946,6 +1127,16 @@ const AiCar = ({ route, seed, index = 0 }) => {
 // Debug visualization for AI traffic routes
 const AiTrafficDebug = () => {
   const [showRoutes, setShowRoutes] = useState(false)
+  // Re-render while open: routes are re-planned every lap (AI_ROUTES[i] is
+  // swapped in place by tryReroute) and the cars move, so a static snapshot
+  // of the lines/spheres goes stale in seconds. 2 Hz is plenty; the interval
+  // only exists while the overlay is on.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!showRoutes) return undefined
+    const t = setInterval(() => setTick((v) => v + 1), 500)
+    return () => clearInterval(t)
+  }, [showRoutes])
 
   // Toggle routes on 'T' key
   useEffect(() => {
@@ -993,9 +1184,10 @@ const AiTrafficDebug = () => {
         const nearest = findNearestOnRoute(route, live.x, live.z)
         if (!nearest) return null
 
-        // Sample route at progress
+        // Sample at the car's projected progress (sampling s=0 always parked
+        // the cube at the loop start regardless of where the car actually was)
         const routeOut = { x: 0, z: 0, yaw: 0, done: false }
-        sampleRoute(route, 0, routeOut)
+        sampleRoute(route, nearest.t, routeOut)
 
         return (
           <>

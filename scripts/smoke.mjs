@@ -490,6 +490,44 @@ const main = async () => {
   })()
   console.log((damaged || killed) ? 'SHOOT TEST: PASS' : 'SHOOT TEST: FAIL')
 
+  // --- AI traffic test: fleet present, actually driving, covering the ------
+  // road graph (npcsQA.traffic / npcsQA.routeStats seams; routes planned by
+  // lib/trafficRoutes.js — coverage-greedy at spawn + per-lap re-routing).
+  console.log('\n--- AI traffic test (fleet on city roads) ---')
+  const routeStats = await page.evaluate('window.__gtathensNpcs && window.__gtathensNpcs.routeStats ? JSON.stringify(window.__gtathensNpcs.routeStats()) : "MISSING"')
+  const tr0 = await page.evaluate('window.__gtathensNpcs && window.__gtathensNpcs.traffic ? JSON.stringify(window.__gtathensNpcs.traffic()) : "MISSING"')
+  console.log('route stats: ' + routeStats)
+  await sleep(3500) // cruise is 8.5-12.4 m/s => >= ~20 m in 3.5 s if driving
+  const tr1 = await page.evaluate('window.__gtathensNpcs && window.__gtathensNpcs.traffic ? JSON.stringify(window.__gtathensNpcs.traffic()) : "MISSING"')
+  let trafficOk = false
+  try {
+    const a = JSON.parse(tr0)
+    const b = JSON.parse(tr1)
+    const rs = JSON.parse(routeStats)
+    const player = await P()
+    // Cars within 25 m of the player BRAKE to a stop by design (courtesy
+    // rule) — exclude them from the movement requirement.
+    const eligible = []
+    const moved = []
+    for (const cb of b) {
+      const ca = a.find((x) => x.i === cb.i)
+      if (!ca) continue
+      if (Math.hypot(cb.x - player.x, cb.z - player.z) < 25) continue
+      eligible.push(cb.i)
+      moved.push(Math.hypot(cb.x - ca.x, cb.z - ca.z))
+    }
+    const drivingCount = moved.filter((d) => d > 5).length
+    const frac = eligible.length ? drivingCount / eligible.length : 0
+    console.log('fleet: ' + b.length + ' cars, eligible (far from player): ' + eligible.length
+      + ', moved >5 m in 3.5 s: ' + drivingCount + ' (' + Math.round(frac * 100) + '%)')
+    console.log('displacements (m): ' + moved.map((d) => d.toFixed(1)).join(' '))
+    trafficOk = b.length >= 12 && eligible.length >= 6 && frac >= 0.6
+      && rs && rs.routes >= 12 && typeof rs.coverage === 'number' && rs.coverage > 0.5
+  } catch (e) {
+    console.log('traffic data error: ' + e.message)
+  }
+  console.log(trafficOk ? 'TRAFFIC TEST: PASS' : 'TRAFFIC TEST: FAIL')
+
   console.log('\n--- uncaught exceptions (deduped) ---')
   if (exceptions.size === 0) console.log('none')
   for (const [msg, info] of exceptions) {

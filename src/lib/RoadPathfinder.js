@@ -46,6 +46,17 @@ export const ROAD_FILTERS = {
  */
 export const STITCH_R = 8.0
 
+/**
+ * Cost multiplier for stitched (junction-guess) edges in A*'s g-score.
+ * Stitches bridge OSM ways that meet at a gap — usually real junctions, but
+ * occasionally a lane-for-lane parallel merge or a driveway hop. A small
+ * penalty makes A* prefer real road segments when both exist, while still
+ * routing across stitches where they are the only connection. Applied to the
+ * CSR g-cost only; reported route lengths stay true metres
+ * (polylineLength over node coordinates).
+ */
+export const STITCH_COST_MUL = 1.25
+
 /** Node identity: 0.1 m grid — same recipe (and tolerance) as buildRoadGraph. */
 const nodeKey = (x, z) => `${Math.round(x * 10)},${Math.round(z * 10)}`
 
@@ -123,11 +134,14 @@ class MinHeap {
 /* ------------------------------------------------------------------ */
 
 /**
- * Squared-distance heuristic. Squared (not euclidean) on purpose: comparing
- * straight-line distance against path cost only needs a monotone ordering, and
- * it saves a sqrt per expansion. Admissible because edge costs are lengths.
+ * Euclidean-distance heuristic (admissible: edge costs are metres, so the
+ * straight line never overestimates). An earlier squared-distance version
+ * looked "faster" (fewer expansions, no sqrt) but for any distance > 1 m
+ * d^2 > d, i.e. it OVERESTIMATES — A* degrades to greedy best-first and can
+ * return suboptimal routes. One hypot per expansion is negligible next to
+ * heap work; keep this admissible.
  */
-const heuristic2 = (ax, az, bx, bz) => (ax - bx) * (ax - bx) + (az - bz) * (az - bz)
+const heuristic = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz)
 
 /** Length of a [[x, z], ...] polyline in metres (the route's driving distance). */
 export const polylineLength = (points) => {
@@ -237,10 +251,10 @@ const astarApi = ({ nx, nz, adjStart, adjTo, adjLen, count, nearest }) => {
     visitToken[a.id] = token
     gScore[a.id] = 0
     cameFrom[a.id] = -1
-    heap.push(a.id, heuristic2(a.x, a.z, b.x, b.z))
+    heap.push(a.id, heuristic(a.x, a.z, b.x, b.z))
 
     let best = a.id
-    let bestH = heuristic2(a.x, a.z, b.x, b.z)
+    let bestH = heuristic(a.x, a.z, b.x, b.z)
     let expanded = 0
     while (heap.size > 0 && expanded < maxExpansions) {
       const cur = heap.pop()
@@ -248,7 +262,7 @@ const astarApi = ({ nx, nz, adjStart, adjTo, adjLen, count, nearest }) => {
       closedToken[cur] = token
       expanded += 1
 
-      const h = heuristic2(nx[cur], nz[cur], b.x, b.z)
+      const h = heuristic(nx[cur], nz[cur], b.x, b.z)
       if (h < bestH) {
         bestH = h
         best = cur
@@ -267,7 +281,7 @@ const astarApi = ({ nx, nz, adjStart, adjTo, adjLen, count, nearest }) => {
           visitToken[nb] = token
           gScore[nb] = tentative
           cameFrom[nb] = cur
-          heap.push(nb, tentative + heuristic2(nx[nb], nz[nb], b.x, b.z))
+          heap.push(nb, tentative + heuristic(nx[nb], nz[nb], b.x, b.z))
         }
       }
     }
@@ -393,7 +407,7 @@ export const buildRoadPathfinder = (segments, { stitch = STITCH_R } = {}) => {
           for (const j of arr) {
             if (j <= i) continue
             const d = Math.hypot(nx[j] - nx[i], nz[j] - nz[i])
-            if (d > 0 && d <= stitch && addEdge(i, j, d, 'stitch')) stitched += 1
+            if (d > 0 && d <= stitch && addEdge(i, j, d * STITCH_COST_MUL, 'stitch')) stitched += 1
           }
         }
       }

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useFrame } from '@react-three/fiber'
 import { Merged, useGLTF } from '@react-three/drei'
 import { ConvexHullCollider, RigidBody, TrimeshCollider } from '@react-three/rapier'
 import * as THREE from 'three'
@@ -111,6 +112,106 @@ const pickPoolId = (category, area) => {
   return 'commercial'
 }
 
+/* -------------------------------------------------------------- */
+/* Night window glow                                               */
+/*                                                                  */
+/* The Kenney GLBs have NO separate window material: every building */
+/* is ONE mesh with ONE "colormap" atlas material — the blue window */
+/* panels are palette swatches baked into that texture. So the glow */
+/* runs INSIDE the shared material's shader (onBeforeCompile, patched */
+/* once per material here):                                         */
+/*   1. mask = dark + blue-tinted pixels of the sampled atlas color  */
+/*      (walls are bright/white, base trim near-black → excluded);   */
+/*   2. glow color = per-BUILDING pick from a palette, hashed from   */
+/*      instanceMatrix[3].xz (each building is one instance of the   */
+/*      city-wide <Merged> InstancedMesh) → yellow/blue/orange/etc;  */
+/*   3. uNight = nightDarkness(gameTime), written per frame by       */
+/*      BuildingLights' useFrame (same dusk ramp as the point lights).*/
+/* The program is compiled once (same source for every material);    */
+/* uniforms stay per-material via userData.gtNight.                  */
+/* -------------------------------------------------------------- */
+const glowMats = []
+
+// Dusk factor in [0, 1]: 0 = full day, 1 = full night.
+// Dusk starts 17:00, full night by 20:00; dawn starts 05:00, full day by 08:00.
+// (Matches DayNightCycle's sky phases; shared by the point lights + glow.)
+const nightDarkness = (t) => {
+  if (t >= 20 || t < 5) return 1
+  if (t >= 17 && t < 20) return (t - 17) / 3
+  if (t >= 5 && t < 8) return 1 - (t - 5) / 3
+  return 0
+}
+
+const patchWindowGlow = (mat) => {
+  if (!mat || mat.userData.gtGlow) return
+  mat.userData.gtGlow = true
+  const nightU = { value: 0 }
+  mat.userData.gtNight = nightU
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uNight = nightU
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec2 vGlowXZ;',
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+#ifdef USE_INSTANCING
+  // World position of this building (the <Merged> InstancedMesh sits at
+  // identity, so the instance matrix IS the building's world transform).
+  vGlowXZ = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
+#else
+  vGlowXZ = vec2(0.0);
+#endif`,
+      )
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform float uNight;
+varying vec2 vGlowXZ;
+// Robust hash (Dave Hoskins) — the sin() variant bands on big coords.
+float gtHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+// City-lights palette: warm yellow dominates, the rest adds variety.
+vec3 gtGlowColor(float h) {
+  if (h < 0.42) return vec3(1.00, 0.78, 0.42); // warm yellow
+  if (h < 0.62) return vec3(0.40, 0.70, 1.00); // sky blue
+  if (h < 0.74) return vec3(1.00, 0.55, 0.25); // orange
+  if (h < 0.82) return vec3(1.00, 0.94, 0.78); // warm white
+  if (h < 0.91) return vec3(0.45, 1.00, 0.86); // mint
+  return vec3(1.00, 0.50, 0.82);               // pink
+}`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+// Window mask on the RAW atlas color (this runs before lighting):
+// dark (excludes white walls), not near-black (excludes the base trim),
+// and blue-tinted — the window swatches in all three Kenney atlases are
+// slate-navy; facade colors are warm/bright and fall outside this band.
+float gtL = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+float gtCool = diffuseColor.b - diffuseColor.r;
+float gtW = smoothstep(0.05, 0.14, gtL)
+          * (1.0 - smoothstep(0.30, 0.46, gtL))
+          * smoothstep(0.012, 0.05, gtCool);`,
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+float gtH = gtHash(vGlowXZ);
+// ~22% of buildings keep their windows dark at night (still asleep).
+float gtGate = step(0.22, gtHash(vGlowXZ + vec2(7.31, 1.77)));
+totalEmissiveRadiance += gtGlowColor(gtH) * (0.75 + 0.5 * gtH) * gtW * uNight * gtGate * 1.6;`,
+      )
+  }
+  glowMats.push(mat)
+}
+
 let kenneyCache = null
 
 const buildKenneyCache = (scenes) => {
@@ -137,6 +238,10 @@ const buildKenneyCache = (scenes) => {
         obj.name = key
         if (!keys.includes(key)) keys.push(key)
         if (!meshMap[key]) meshMap[key] = obj
+        // Night window glow: patch the SHARED colormap material once
+        // (array materials preserved — industrial builds have 2 prims).
+        if (Array.isArray(obj.material)) obj.material.forEach(patchWindowGlow)
+        else patchWindowGlow(obj.material)
         if (posCandidate(obj, originalName, size, center)) {
           const pos = obj.geometry.getAttribute('position')
           if (pos) {
@@ -242,7 +347,10 @@ const planBuildings = (data, byModel) => {
     }
     const w = maxX - minX
     const d = maxZ - minZ
-    if (w < 4 || d < 4 || w > 220 || d > 220) return []
+    // Every OSM building spawns: only degenerate slivers (< 2 m on a side)
+    // or absurd rings (> 220 m) are discarded as bad data. Tiny sheds land
+    // on the box fallback in the render path (no Kenney model fits 2 m).
+    if (w < 2 || d < 2 || w > 220 || d > 220) return []
 
     const x = (minX + maxX) / 2
     const z = (minZ + maxZ) / 2
@@ -283,6 +391,15 @@ const planBuildings = (data, byModel) => {
     h = clamp(h, 4, 120)
 
     const poolId = pickPoolId(b.category, area)
+    // Tiny sheds/kiosks (< ~3.5 m on the short side): no Kenney model fits
+    // without grotesque shrink, so flag the plain-box fallback (render path
+    // draws a plaster box at true OSM size; hullVerts extrudes the outline).
+    if (Math.min(w, d) < 3.5) {
+      return [{
+        x, z, y0: 0, rot: 0, sx: 1, sy: 1, sz: 1, w, d, h,
+        colH: h, model: '__box__', footprint: null, outline,
+      }]
+    }
     let model
     if (poolId === 'commercial' && h >= 55) {
       model = SKYSCRAPER_MODELS[Math.floor(hash(i + 7) * SKYSCRAPER_MODELS.length)]
@@ -531,17 +648,19 @@ const BuildingColliders = ({ buildings }) => {
 // Building window/night lights component
 const BuildingLights = ({ buildings }) => {
   const gameTime = useGameStore((s) => s.gameTime ?? 12)
+  const darkness = nightDarkness(gameTime)
 
-  // Compute darkness factor in [0, 1]
-  // Dusk starts at 17:00, full night by 20:00, dawn starts at 05:00, full day by 08:00
-  let darkness = 0
-  if (gameTime >= 20 || gameTime < 5) {
-    darkness = 1
-  } else if (gameTime >= 17 && gameTime < 20) {
-    darkness = (gameTime - 17) / 3
-  } else if (gameTime >= 5 && gameTime < 8) {
-    darkness = 1 - (gameTime - 5) / 3
-  }
+  // Window-glow uniforms: written per frame straight from the store (no
+  // allocation, no React re-render) so the shader mask ramps smoothly with
+  // dusk and reacts the same second as a HUD time jump. Must run BEFORE the
+  // darkness early-return below (hooks are unconditional).
+  useFrame(() => {
+    const d = nightDarkness(useGameStore.getState().gameTime ?? 12)
+    for (let i = 0; i < glowMats.length; i += 1) {
+      const u = glowMats[i].userData.gtNight
+      if (u) u.value = d
+    }
+  })
 
   const litBuildings = useMemo(() => {
     return buildings
@@ -604,6 +723,15 @@ const City = () => {
     () => (data ? planBuildings(data, byModel) : []),
     [data, byModel],
   )
+  // QA seam for the "all OSM buildings spawn" invariant: planBuildings input
+  // vs output counts, no per-frame cost (recomputed only on data load).
+  useEffect(() => {
+    if (typeof window === 'undefined' || !data) return
+    window.__gtathensBuildings = {
+      osm: (data.buildings || []).length,
+      planned: buildings.length,
+    }
+  }, [data, buildings])
 
   useEffect(() => {
     if (!data) return
@@ -636,19 +764,35 @@ const City = () => {
             frustumCulled={false}
           >
             {(M) =>
-              buildings.map((b, i) => (
-                <group
-                  key={i}
-                  position={[b.x, b.y0, b.z]}
-                  rotation={[0, b.rot, 0]}
-                  scale={[b.sx, b.sy, b.sz]}
-                >
-                  {byModel[b.model].keys.map((key) => {
-                    const Part = M[key]
-                    return <Part key={key} />
-                  })}
-                </group>
-              ))}
+              buildings.map((b, i) => {
+                // Tiny-footprint fallback: no Kenney model fits a ~2 m shed
+                // without grotesque shrink — render a plain plaster box with a
+                // flat roof at the true OSM size so the building still EXISTS
+                // (and the collider below still traces it).
+                if (b.model === '__box__') {
+                  return (
+                    <group key={i} position={[b.x, 0, b.z]}>
+                      <mesh position={[0, b.colH / 2, 0]} castShadow receiveShadow>
+                        <boxGeometry args={[b.w * 0.94, b.colH, b.d * 0.94]} />
+                        <meshStandardMaterial color="#cfc8bb" roughness={0.9} metalness={0} />
+                      </mesh>
+                    </group>
+                  )
+                }
+                return (
+                  <group
+                    key={i}
+                    position={[b.x, b.y0, b.z]}
+                    rotation={[0, b.rot, 0]}
+                    scale={[b.sx, b.sy, b.sz]}
+                  >
+                    {byModel[b.model].keys.map((key) => {
+                      const Part = M[key]
+                      return <Part key={key} />
+                    })}
+                  </group>
+                )
+              })}
           </Merged>
           <BuildingColliders buildings={buildings} />
           <BuildingLights buildings={buildings} />

@@ -8,6 +8,7 @@ import { CameraRig, OrbitInput, driveOrbit, nudgePitchTrim, DRIVE_YAW_MAX } from
 import { BTN, getDrivePad, padEdge, padHeld, padValue, readDriveAxis, readStick, wheelPedals, isWheelLike, vibrateGamepad, GP_DEADZONE_DRIVE } from '../../lib/gamepad'
 import { CAR_MAX_SPEED, CAR_REVERSE_MAX, CAR_TURN_RATE, LOOSE_MAX_MS, NITRO_SPEED_MUL, NITRO_ACCEL_MUL, FOV_SPEED_ADD, FOV_NITRO_ADD, getCarTuning } from './constants.js'
 import { crash, isOnAsphalt, aiDamage, setAiCarOccupied, setRigidBodyType } from './crashManager.js'
+import { combat } from '../../lib/combat'
 import { setAnimSpot } from './carVisuals.js'
 import { audio } from '../../lib/audio'
 
@@ -35,6 +36,7 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
   const mountedAt = useRef(typeof performance !== 'undefined' ? performance.now() : 0)
   const keys = useRef({ fwd: false, back: false, left: false, right: false, brake: false, nitro: false, horn: false })
   const dmgSync = useRef({ idx: null, val: 0 })
+  const boomRef = useRef(false) // one-shot guard: damage hit 100% while driving
   const steerRef = useRef(0)
   const hornAt = useRef(0)
   const fovCur = useRef(null)
@@ -134,6 +136,27 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
           if (rp) vibrateGamepad(rp, 220, 0.9, 1.0)
         }
       } catch {}
+    }
+
+    // --- Vehicle destroyed (damage hit 100%): eject the occupant ---------
+    // The explosion FX already fired from addDamage's threshold crossing;
+    // here the OCCUPANT reacts: the normal ray-cleared exitCar handoff, HP
+    // loss, rumble + camera shake. boomRef makes it once per mount (and
+    // CarEntrance blocks re-entering the wreck anyway).
+    if (dmg >= 1 && !boomRef.current && phaseRef.current === Phase.PLAYING) {
+      boomRef.current = true
+      try {
+        const gs = useGameStore.getState()
+        gs.setHealth(Math.max(0, (gs.health ?? 100) - 45))
+        if (typeof gs.pushToast === 'function') gs.pushToast('Vehicle destroyed!', 'health')
+      } catch { /* store without the action */ }
+      try {
+        const rp = getDrivePad()
+        if (rp) vibrateGamepad(rp, 640, 1, 1.2)
+      } catch { /* no pad */ }
+      try { combat.shake = Math.max(combat.shake || 0, 0.5) } catch { /* no combat */ }
+      driveOrbit.yaw = 0 // hand a clean camera back to the on-foot rig
+      exitCar()
     }
 
     if (phaseRef.current !== Phase.PLAYING) {

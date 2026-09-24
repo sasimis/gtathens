@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo } from 'react'
 import { useGLTF } from '@react-three/drei'
 import useGameStore from '../../store/useGameStore'
-import { crash, isOnAsphalt } from './crashManager.js'
+import { crash, isOnAsphalt, addDamage } from './crashManager.js'
 import { HALF, PARK_COUNT, PARK_RADIUS } from './constants.js'
 import { Car } from './Car.jsx'
 import { CarDriver, LooseSettler } from './CarDriver.jsx'
@@ -38,6 +38,10 @@ export const ParkedCars = ({ spawn = [0, 0], count = PARK_COUNT, radius = PARK_R
       loose: () => crash.loose.size,
       looseIdx: () => Array.from(crash.loose),
       damage: (i) => crash.damage[i] ?? 0,
+      // EXPLOSION TEST: push damage through the REAL threshold pipeline
+      // (addDamage -> explodeCar -> FX + QA seam), never a hand-rolled path.
+      hurt: (i, amt) => { addDamage(i, Number(amt) || 0); return crash.damage[i] ?? 0 },
+      exploded: (i) => crash.explodedParked.has(i),
       pos: (i) => {
         const rb = crash.bodies[i]
         if (!rb || typeof rb.translation !== 'function') return null

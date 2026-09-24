@@ -81,6 +81,11 @@ const carsQA = {
   loose: () => crashForQA.loose.size,
   looseIdx: () => Array.from(crashForQA.loose),
   damage: (i) => crashForQA.damage[i] ?? 0,
+  // EXPLOSION TEST seams (the LIVE ParkedCars hook installs its own — this is
+  // only the pre-mount fallback): drive damage through the real addDamage
+  // threshold pipeline and read the one-shot exploded marker.
+  hurt: (i, amt) => { addDamage(i, Number(amt) || 0); return crashForQA.damage[i] ?? 0 },
+  exploded: (i) => crashForQA.explodedParked.has(i),
   pos: (i) => {
     const rb = crashForQA.bodies[i]
     if (!rb || typeof rb.translation !== 'function') return null

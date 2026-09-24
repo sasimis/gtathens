@@ -767,6 +767,44 @@ kbd {
   color: #7dff9a;
 }
 
+/* Time-shift button (inside the status chip): jumps the clock to the next
+   TIME_PRESETS phase (Day → Evening → Night → Dawn). DayNightCycle consumes
+   the store's one-shot timeJump request. NOTE: .hud-chip sets
+   pointer-events: none (inherited) — this must opt back in to be clickable. */
+.hud-timebtn {
+  pointer-events: auto;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 2px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.hud-timebtn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: var(--accent);
+}
+
+.hud-timebtn:active {
+  transform: translateY(1px);
+}
+
+.hud-timebtn-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
 /* "Press F to enter vehicle" prompt - centers above the player */
 .hud-action {
   position: absolute;
@@ -1439,7 +1477,9 @@ body.gt-hide-cursor canvas {
 .inv-empty { padding: 12px 0; color: var(--text-dim); font-size: 13px; }
 
 /* Street-name chip (bottom-right): nearest road class on foot + driving.
-   Sits above the debug buttons, same monospace treatment as the reload bar. */
+   Sits above the debug buttons, same monospace treatment as the reload bar.
+   max-width + ellipsis: real OSM names (e.g. Greek street names) can be long —
+   the chip must never sprawl across the screen. Full name stays on hover. */
 .hud-street {
   left: auto;
   right: 18px;
@@ -1452,7 +1492,42 @@ body.gt-hide-cursor canvas {
   font-size: 13px;
   letter-spacing: 1px;
   min-width: 120px;
+  max-width: min(320px, 34vw);
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* GTA-style street-change banner: BOTTOM-RIGHT corner, stacked above the
+   street chip (bottom: 64px) and the debug buttons (bottom: 12px). The div
+   is deliberately TRANSPARENT — no plate, no accent borders — black letters
+   + the framer-motion pop/fade in StreetHUD.jsx are the effect. Caps/tones
+   are handled in bannerCase() (JS), not text-transform. */
+.street-banner {
+  position: fixed;
+  right: 18px;
+  bottom: 104px;
+  padding: 4px 0 16px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  pointer-events: none;
+  max-width: min(560px, 60vw);
+  text-align: right;
+}
+
+.street-banner-label {
+  display: block;
+  font-family: 'Arial Black', 'Impact', sans-serif;
+  font-size: clamp(20px, 3.4vw, 34px);
+  letter-spacing: 2px;
+  color: #000;
+  /* faint light halo so black type stays readable over dark asphalt */
+  text-shadow: 0 1px 3px rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Crash damage readout (while driving) - sits under the clock */
 .hud-dmg {
