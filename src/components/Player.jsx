@@ -6,9 +6,10 @@ import * as THREE from 'three'
 import useGameStore, { Phase } from '../store/useGameStore'
 import Protagonist, { CHARACTERS } from './Protagonist'
 import { CAR_LIVE_POS, PARK_COUNT, PARK_RADIUS, PLAYER_COLLISION_GROUPS, useParkingSpots, isOnAsphalt, crash } from './Car'
-import { CameraRig, OrbitInput } from './FollowCamera'
+import { CameraRig, OrbitInput, nudgePitchTrim } from './FollowCamera'
 import { BTN, getGamepad, padEdge, padHeld, readStick } from '../lib/gamepad'
 import { audio } from '../lib/audio'
+import { combat } from '../lib/combat'
 import WeaponController from './WeaponController'
 import { BulletFx } from './BulletFx'
 
@@ -271,10 +272,14 @@ const PlayerBody = ({ spawn }) => {
       gpx = readStick(pad, 0)
       gpz = -readStick(pad, 1)
       gpLookX = readStick(pad, 2)
+      const gpLookY = readStick(pad, 3)
       gpJump = padEdge(pad, BTN.A)
       gpRun = padHeld(pad, BTN.LB) || padHeld(pad, BTN.RB)
       if (Math.abs(gpLookX) > 0.001) {
         camYaw.current -= gpLookX * 2.4 * dt
+      }
+      if (Math.abs(gpLookY) > 0.001) {
+        nudgePitchTrim(-gpLookY * 1.5 * dt)
       }
       if (padEdge(pad, BTN.Y)) {
         // Y enters a nearby car when one is in reach; otherwise it still
@@ -361,16 +366,17 @@ const PlayerBody = ({ spawn }) => {
 
     let moveYaw = yaw.current
     const planarSpeed = Math.hypot(vel.current.x, vel.current.z)
-    if (planarSpeed > 0.4 && moving) {
+    if (planarSpeed > 0.4 && moving && !combat.firing) {
       moveYaw = Math.atan2(vel.current.x, vel.current.z)
       const sideBias = strafing * (1 - Math.min(1, Math.abs(iz))) * 0.55
       moveYaw += sideBias
-    } else if (!moving) {
+    } else if (!moving || combat.firing || combat.aimHold > 0) {
       moveYaw = camYaw.current
     }
     let diff = moveYaw - yaw.current
     diff = Math.atan2(Math.sin(diff), Math.cos(diff))
-    yaw.current += diff * (1 - Math.exp(-10 * dt))
+    const turnRate = (combat.firing || combat.aimHold > 0) ? 22 : 10
+    yaw.current += diff * (1 - Math.exp(-turnRate * dt))
 
     // Footstep audio
     if (grounded && moving && planarSpeed > 0.6) {
