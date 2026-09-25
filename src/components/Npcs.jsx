@@ -31,6 +31,7 @@ import {
   CarDriver,
   CarModel,
   crash,
+  crashHitFromPayload,
   addAiDamage,
   getCarBody,
   isAiCarOccupied,
@@ -1109,9 +1110,10 @@ const AiCar = ({ route, seed, index = 0 }) => {
         ccdEnabled
         linearDamping={0.5}
         angularDamping={2.0}
-        onCollisionEnter={(p) => { try { audio.crash(0.3) } catch { /* ignore */ } }}
+        onCollisionEnter={(p) => crashHitFromPayload(p, null, false, 0, index)}
+        onContactForce={(p) => crashHitFromPayload(p, null, true, p?.totalForceMagnitude ?? 0, index)}
       >
-        <CuboidCollider args={[half[0] + 0.05, half[1] + 0.05, half[2] + 0.05]} friction={0.7} restitution={0.20} />
+        <CuboidCollider args={[half[0] + 0.08, half[1] + 0.05, half[2] + 0.08]} friction={0.7} restitution={0.15} />
       </RigidBody>
       <group position={[0, 0, 0]}>
         <Suspense fallback={null}>

@@ -1,7 +1,7 @@
 
 --- T1 - init + buildNavMesh ---
 ensureNavReady(): OK (wasm loaded from the @recast-navigation/wasm compat build)
-[PASS] T1 build succeeds — 86 polys, 72 ms
+[PASS] T1 build succeeds — 86 polys, 136 ms
 path (-20,0)->(20,0): 41.53 m
 path along open ground: 40.00 m (expect ~40)
 [PASS] T4 building prism carves the mesh — detour 41.53 m > 40 m straight
@@ -25,7 +25,7 @@ nearest walkable point to the building centre: none
 
 --- T6 - city-scale build through buildNavGeometry + navConfig ---
 geometry: 120 prisms, 0 skipped, 3616 verts / 1568 tris
-[PASS] T6 city build succeeds — 1760 polys, 442 ms, pruned=false
+[PASS] T6 city build succeeds — 1760 polys, 1126 ms, pruned=false
 [PASS] long-range path found — 505.5 m in 1 ms, 11 waypoints
 [PASS] all waypoints sit on the mesh — worst offset 0.000 m
 [PASS] no walkable building interiors at city scale — building centre is not walkable
