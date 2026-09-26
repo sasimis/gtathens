@@ -31,6 +31,7 @@ import {
   CarDriver,
   CarModel,
   crash,
+  crashHitFromPayload,
   addAiDamage,
   getCarBody,
   isAiCarOccupied,
@@ -38,6 +39,7 @@ import {
   setAiCarOccupied,
   setAiLive,
 } from './Car'
+import { combat } from '../lib/combat'
 import { audio } from '../lib/audio'
 import { setAnimAi } from './car-modules/carVisuals.js'
 import { CarWheels } from './car-modules/CarWheels.jsx'
@@ -799,6 +801,9 @@ const AiCar = ({ route, seed, index = 0 }) => {
   const cruiseMult = 0.85 + ((Math.abs(seed) * 37) % 40) / 100
   const carCruise = AI_CRUISE * cruiseMult
 
+  const onHit = React.useCallback((p) => crashHitFromPayload(p, null, false, 0, index), [index])
+  const onForce = React.useCallback((p) => crashHitFromPayload(p, null, true, p?.totalForceMagnitude ?? 0, index), [index])
+
   useFrame((state, dtRaw) => {
     const rb = bodyRef.current
     if (!rb || typeof rb.translation !== 'function') return
@@ -1109,7 +1114,8 @@ const AiCar = ({ route, seed, index = 0 }) => {
         ccdEnabled
         linearDamping={0.5}
         angularDamping={2.0}
-        onCollisionEnter={(p) => { try { audio.crash(0.3) } catch { /* ignore */ } }}
+        onCollisionEnter={onHit}
+        onContactForce={onForce}
       >
         <CuboidCollider args={[half[0] + 0.05, half[1] + 0.05, half[2] + 0.05]} friction={0.7} restitution={0.20} />
       </RigidBody>
@@ -1212,6 +1218,38 @@ const Npcs = ({ spawn = [0, 0] }) => {
   const key = `${Math.round(spawn[0] * 10)},${Math.round(spawn[1] * 10)}`
   const [peds, setPeds] = useState([])
   const [routes, setRoutes] = useState([])
+
+  useEffect(() => {
+    crash.pedCheck = (orb, speed) => {
+      for (let i = 0; i < NPC_RECORDS.length; i += 1) {
+        const rec = NPC_RECORDS[i]
+        if (rec && !rec.dead && rec.rb === orb) {
+          rec.hp = Math.max(0, rec.hp - Math.round(speed * 12))
+          if (rec.hp <= 0) {
+            rec.dead = true
+            rec.deadAt = typeof performance !== 'undefined' ? performance.now() : 0
+          }
+          try { audio.crash(0.2) } catch {}
+          return
+        }
+      }
+    }
+    crash.playerCheck = (orb, speed) => {
+      if (speed > 3.0) {
+        try {
+          const gs = useGameStore.getState()
+          if (gs && gs.phase === Phase.PLAYING && gs.driving === null) {
+            gs.setHealth(Math.max(0, (gs.health ?? 100) - Math.round(speed * 2.0)))
+            combat.shake = Math.min(1.0, (combat.shake || 0) + speed * 0.02)
+          }
+        } catch {}
+      }
+    }
+    return () => {
+      crash.pedCheck = null
+      crash.playerCheck = null
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
