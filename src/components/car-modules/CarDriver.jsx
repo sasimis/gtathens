@@ -9,7 +9,7 @@ import { BTN, getDrivePad, padEdge, padHeld, padValue, readDriveAxis, readStick,
 import { CAR_MAX_SPEED, CAR_REVERSE_MAX, CAR_TURN_RATE, LOOSE_MAX_MS, NITRO_SPEED_MUL, NITRO_ACCEL_MUL, FOV_SPEED_ADD, FOV_NITRO_ADD, getCarTuning } from './constants.js'
 import { crash, isOnAsphalt, aiDamage, setAiCarOccupied, setRigidBodyType } from './crashManager.js'
 import { combat } from '../../lib/combat'
-import { setAnimSpot } from './carVisuals.js'
+import { setAnimSpot, setAnimAi } from './carVisuals.js'
 import { audio } from '../../lib/audio'
 
 const q = new THREE.Quaternion()
@@ -251,13 +251,17 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
 
     const wantF = keys.current.fwd || gpF > 0.15
     const wantB = keys.current.back || gpB > 0.15
-    const isBraking = keys.current.brake || gpBr
+    const rawBrake = keys.current.brake || gpBr
     const aF = Math.max(keys.current.fwd ? 1 : 0, gpF)
     const aB = Math.max(keys.current.back ? 1 : 0, gpB)
     const power = 1 - 0.65 * dmg
 
     let surfaceMul = 1
     try { surfaceMul = isOnAsphalt(tNow.x, tNow.z) ? 1 : 0.55 } catch (e) { surfaceMul = 1 }
+
+    // Foot brake logic: pressing Back while moving forward, or Forward while reversing
+    const isFootBraking = (fwdV > 1.0 && wantB) || (fwdV < -1.0 && wantF)
+    const isBraking = rawBrake || isFootBraking
 
     // Nitro recomputed AFTER wantF/wantB exist (uses the live pedal state).
     const nitroNow = !!(keys.current.nitro || gpNitro) && (wantF || wantB)
@@ -266,28 +270,26 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     const revSpd = tuning.reverseMax * (nitroNow ? 1.15 : 1)
     const tauNow = tuning.accelTau / (nitroNow ? NITRO_ACCEL_MUL : 1)
 
-    const targetFwd = wantF
-      ? maxSpd * power * surfaceMul * aF
-      : wantB
-      ? -revSpd * power * Math.max(0.6, surfaceMul) * aB
-      : 0
+    let targetFwd = 0
+    if (wantF && fwdV >= -1.0) {
+      targetFwd = maxSpd * power * surfaceMul * aF
+    } else if (wantB && fwdV <= 1.0) {
+      targetFwd = -revSpd * power * Math.max(0.6, surfaceMul) * aB
+    }
 
-    const tau = wantF || wantB ? tauNow : 0.22
+    const isAccelerating = (wantF && fwdV >= -0.5) || (wantB && fwdV <= 0.5)
+    const tau = isAccelerating ? tauNow : 1.8
     const lerpRate = 1 - Math.pow(0.0015, delta / tau)
     let newFwdV = fwdV + (targetFwd - fwdV) * lerpRate
+
     if (isBraking) {
-      // During a high-speed drift the handbrake only bleeds speed slowly (the
-      // slide needs forward momentum to carry); otherwise brake hard to a stop.
-      const driftDecel = planarSpeed > 6.0 && Math.abs(fwdV) > 4.0 ? 0.9 : 6
-      newFwdV = Math.abs(fwdV) > 0.4 ? fwdV * Math.max(0, 1 - driftDecel * delta) : 0
+      // Foot brake or handbrake deceleration
+      const decel = rawBrake ? (planarSpeed > 6.0 && Math.abs(fwdV) > 4.0 ? 2.5 : 8.0) : 7.0
+      newFwdV = Math.abs(fwdV) > 0.2 ? fwdV * Math.max(0, 1 - decel * delta) : 0
     }
 
     let grip = tuning.grip
     if (isBraking) {
-      // Handbrake DRIFT: at speed, the brake drops lateral grip hard so the
-      // rear slides and steering rotates the car beyond its travel direction
-      // (the kept sideV is exactly the drift). Slow-speed braking stays a
-      // plain stop.
       if (planarSpeed > 6.0 && Math.abs(fwdV) > 4.0) grip = 0.22
       else grip = 0.60
     } else if (Math.abs(sideV) > 2.0 && planarSpeed > 5.0) {
@@ -318,16 +320,17 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       turnFactor *= 1.35
     }
 
-    // No gas = no turn: a stationary car can't steer. Scale the turn rate by
-    // how fast the car is actually rolling (reversing counts — real cars steer
-    // while rolling backward too); full authority from ~2 m/s upward.
-    const rolling = Math.min(1, absSpeed / 2)
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
+    // Rolling factor: authority from ~1.5 m/s upwards.
+    // Invert angular velocity when in reverse (fwdV < -0.2) so steering Right in reverse backs up to the right.
+    const rolling = Math.min(1, absSpeed / 1.5)
+    const revSign = fwdV < -0.2 ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling * revSign
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
     try {
       if (spotIndex != null && spotIndex >= 0) setAnimSpot(spotIndex, newFwdV, steerRef.current, nitroNow, isBraking)
+      if (aiIndex != null && aiIndex >= 0) setAnimAi(aiIndex, newFwdV, steerRef.current, isBraking)
     } catch {}
 
     // Horn (keyboard H edge, gamepad RB edge), throttled so it can't spam.
