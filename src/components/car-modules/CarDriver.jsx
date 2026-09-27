@@ -307,10 +307,10 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     const steerRaw = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0) + gpS
     const steer = steerRaw
 
-    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
+    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 22))
 
     const absSpeed = Math.abs(fwdV)
-    let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
+    let turnFactor = Math.max(0.6, Math.min(1, absSpeed / 4))
     if (absSpeed > 16) {
       turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
     }
@@ -322,7 +322,8 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     // how fast the car is actually rolling (reversing counts — real cars steer
     // while rolling backward too); full authority from ~2 m/s upward.
     const rolling = Math.min(1, absSpeed / 2)
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
+    const revSign = fwdV < -0.2 ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling * revSign
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
