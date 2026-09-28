@@ -18,6 +18,7 @@ import { Car } from '../components/car-modules/Car.jsx'
 import { CarDriver, LooseSettler } from '../components/car-modules/CarDriver.jsx'
 import { CameraRig, OrbitInput, orbit } from '../components/FollowCamera.jsx'
 import Roads from '../components/Roads.jsx'
+import RoadFurniture from '../components/RoadFurniture.jsx'
   import TrafficCars from './TrafficCars.jsx'
 import { getCarState, lightState, clearTraffic, setCarLights } from './TrafficState.jsx'
 import { loadWorldData } from '../lib/worldData'
@@ -53,7 +54,12 @@ const TestRoads = () => {
     return () => { cancelled = true }
   }, [])
   if (!roads) return null
-  return <Roads roads={roads} />
+  return (
+    <>
+      <Roads roads={roads} />
+      <RoadFurniture roads={roads} />
+    </>
+  )
 }
 
 const GROUND_GROUPS = GROUP_GROUND | (FILTER_ALL << 16)
@@ -97,6 +103,10 @@ const DriveTestPlayer = ({ spots }) => {
   const respawn = useGameStore((s) => s.respawn)
   const clearRespawn = useGameStore((s) => s.clearRespawn)
   const { world, rapier } = useRapier()
+  const groundRay = React.useMemo(
+    () => new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 }),
+    [rapier],
+  )
 
   // Refs are OWNED by this instance (never handed down from the parent): the
   // parent's copy survives the enter/exit unmount, so a stale body handle could
@@ -327,15 +337,18 @@ const DriveTestPlayer = ({ spots }) => {
 
     const t = body.translation()
 
-    // Simple grounded check via downward raycast
+    // Simple grounded check via a short downward ray. The reusable Ray avoids
+    // allocating a WASM object every frame; the hit is still discarded after
+    // the query because the compat Ray owns no external resource here.
     let vy = 0
     let grounded = true
     if (world && rapier) {
       try {
-        const ray = new rapier.Ray({ x: t.x, y: t.y - 0.01, z: t.z }, { x: 0, y: -1, z: 0 })
-        const res = world.castRay(ray, 1.1, true)
-        grounded = res && res.toi < 1.05
-        try { ray.free?.() } catch {}
+        groundRay.origin.x = t.x
+        groundRay.origin.y = t.y - 0.01
+        groundRay.origin.z = t.z
+        const res = world.castRay(groundRay, 1.1, true)
+        grounded = !!res && (res.toi ?? res.timeOfImpact) < 1.05
       } catch {}
     }
 
@@ -381,10 +394,12 @@ const DriveTestPlayer = ({ spots }) => {
         type="dynamic"
         colliders={false}
         collisionGroups={PLAYER_COLLISION_GROUPS}
-        mass={1}
-        linearDamping={0.1}
+        mass={75}
+        linearDamping={0.05}
         angularDamping={0}
-        ccdEnabled
+        ccd
+        softCcdPrediction={0.5}
+        additionalSolverIterations={2}
       >
         <CapsuleCollider args={[CAPSULE_HALF, CAPSULE_RADIUS]} friction={0.8} restitution={0} />
       </RigidBody>
@@ -724,7 +739,16 @@ const DrivingScene = () => {
         shadow-normalBias={0.04}
       />
 
-      <Physics gravity={[0, -9.81, 0]} debug={showColliders}>
+      <Physics
+        gravity={[0, -9.81, 0]}
+        timeStep={1 / 60}
+        interpolate
+        numSolverIterations={8}
+        numAdditionalFrictionIterations={8}
+        numInternalPgsIterations={2}
+        maxCcdSubsteps={2}
+        debug={showColliders}
+      >
         <PhysicsProbe />
 
         {/* Simple ground plane — sized to the FULL map area (~440 m OSM tile),
