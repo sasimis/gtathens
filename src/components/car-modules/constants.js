@@ -49,9 +49,9 @@ export const LOOSE_MAX_MS = 6000
 
 // Driving tuning — arcade GTA feel: higher top ends than the old sim values,
 // plus a nitro multiplier applied while the boost input is held.
-export const CAR_MAX_SPEED = 34
-export const CAR_REVERSE_MAX = 12
-export const CAR_TURN_RATE = 2.2
+export const CAR_MAX_SPEED = 36
+export const CAR_REVERSE_MAX = 13
+export const CAR_TURN_RATE = 2.4
 
 // Nitro (hold Shift / gamepad X): top-speed + accel multiplier.
 export const NITRO_SPEED_MUL = 1.5
