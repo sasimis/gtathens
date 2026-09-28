@@ -233,6 +233,59 @@ check('markingsFor: 14 m boulevard gets 2 dividers', markingsFor('major', 14).di
 check('markingsFor: 9 m street gets no divider', markingsFor('major', 9).dividers === 0)
 check('KERB_H is a real kerb', KERB_H > 0.1 && KERB_H < 0.2, `${KERB_H} m`)
 
+// ---- T9: no stretched geometry ---------------------------------------------
+// THE regression this catches: a quad built from a normalized segment
+// parameter mixed with a length in metres. `t1 = t0 + dashLen` drew a 2 m
+// dash `2*len` metres long, so a 180 m avenue threw 360 m paint streaks
+// clean across the map. It passed every count/area/finite check above -- it
+// is only visible as long thin triangles, so it needs its own invariant.
+//
+// Budget is derived from the DATA (the longest real OSM segment) rather than
+// a magic number, so it stays honest if the map crop changes.
+let longestSeg = 0
+for (const road of roads) {
+  for (let i = 0; i < (road.nodes || []).length - 1; i += 1) {
+    const a = toWorld(road.nodes[i])
+    const b = toWorld(road.nodes[i + 1])
+    const d = Math.hypot(b.x - a.x, b.z - a.z)
+    if (d > longestSeg) longestSeg = d
+  }
+}
+const stretchBudget = longestSeg * 1.05
+const worstByLayer = {}
+let stretchedTotal = 0
+for (const [name, layer] of Object.entries(out)) {
+  const p = layer.positions
+  const count = p.length / 3
+  let worst = 0
+  let over = 0
+  for (let i = 0; i < count; i += 1) {
+    // Vertex c of triangle i starts at flat index (i*3 + c) * 3.
+    for (let c = 0; c < 3; c += 1) {
+      const a = (i * 3 + c) * 3
+      const b = (i * 3 + ((c + 1) % 3)) * 3
+      const d = Math.hypot(p[a] - p[b], p[a + 1] - p[b + 1], p[a + 2] - p[b + 2])
+      if (d > worst) worst = d
+      if (d > stretchBudget) over += 1
+    }
+  }
+  worstByLayer[name] = { worst, over }
+  stretchedTotal += over
+}
+check('T9 no stretched triangles (paint/kerb/walk all bounded by the longest real segment)',
+  stretchedTotal === 0,
+  `budget ${stretchBudget.toFixed(0)} m, offenders ${stretchedTotal}, worst ` +
+  Object.entries(worstByLayer).map(([k, v]) => `${k} ${v.worst.toFixed(0)}`).join(' '))
+
+// Every emitted value must be finite (a NaN here silently drops the whole
+// mesh, which reads as "the roads vanished" rather than as an error).
+let nonFinite = 0
+for (const layer of Object.values(out)) {
+  for (const v of layer.positions) if (!Number.isFinite(v)) nonFinite += 1
+  for (const v of layer.normals) if (!Number.isFinite(v)) nonFinite += 1
+}
+check('T10 every position and normal is finite', nonFinite === 0, `${nonFinite} non-finite`)
+
 fs.writeFileSync('road-surface.txt',
   `road surface repro\n` +
   `triangles tarmac ${tri(out.tarmac)} pavement ${tri(out.pavement)} kerb ${tri(out.kerb)} walk ${tri(out.walk)} paint ${tri(out.paint)}\n` +

@@ -152,7 +152,79 @@ export const buildRoadSurface = (roads, ROAD_STYLE, toWorld) => {
   const Y_WALK = 0.02
   const Y_KERB_TOP = KERB_H
 
-  for (const road of roads || []) {
+  // --- junction index ---------------------------------------------------------
+  // A kerb and a sidewalk are EDGE features: they belong along a block, and
+  // must NOT run across the mouth of a junction. Emitting them for the full
+  // segment length put a raised tan kerb straight through every intersection,
+  // which is what made the streets read as overlapping ribbons. So build a
+  // coarse grid of every painted carriageway and let the kerb/sidewalk code
+  // ask "is this bit of kerb standing in someone else's road?".
+  const grid = new Map()
+  const CELL = 12
+  const cellKey = (gx, gz) => `${gx},${gz}`
+  const painted = []
+  for (let ri = 0; ri < (roads || []).length; ri += 1) {
+    const road = roads[ri]
+    const style = ROAD_STYLE[road.type]
+    if (!style || style.bucket === 'path') continue
+    const nodes = road.nodes || []
+    const half = style.w / 2
+    for (let i = 0; i < nodes.length - 1; i += 1) {
+      const a = toWorld(nodes[i])
+      const b = toWorld(nodes[i + 1])
+      // Sample ALONG the segment, not just at its nodes: consecutive painted
+      // nodes are up to 120 m apart here, and a node-only index left holes a
+      // kerb could stand straight through without ever being seen.
+      const d = Math.hypot(b.x - a.x, b.z - a.z)
+      const n = Math.max(1, Math.ceil(d / 2))
+      for (let k = 0; k <= n; k += 1) {
+        const t = k / n
+        painted.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, h: half, ri })
+      }
+    }
+  }
+  for (const p of painted) {
+    // Insert under every cell the carriageway's half-width can reach, so a
+    // query only has to look at the cell it is standing in.
+    const gx0 = Math.floor((p.x - p.h) / CELL)
+    const gx1 = Math.floor((p.x + p.h) / CELL)
+    const gz0 = Math.floor((p.z - p.h) / CELL)
+    const gz1 = Math.floor((p.z + p.h) / CELL)
+    for (let gx = gx0; gx <= gx1; gx += 1) {
+      for (let gz = gz0; gz <= gz1; gz += 1) {
+        const k = cellKey(gx, gz)
+        let bucket = grid.get(k)
+        if (!bucket) { bucket = []; grid.set(k, bucket) }
+        bucket.push(p)
+      }
+    }
+  }
+
+  /**
+   * True when (x,z) lies inside a painted carriageway belonging to a DIFFERENT
+   * way than `selfRi`.
+   *
+   * The self-test has to be by WAY INDEX, not by distance to the segment start.
+   * This map's OSM ways do not share nodes and the same physical street is
+   * often carried by two or three near-parallel ways (73 of 101 painted ways
+   * overlap another). A kerb on way A is inside way B - B's duplicate of the
+   * very same street - along the whole block, so an index-based test that only
+   * skipped A itself would suppress every kerb in the city. Comparing against
+   * a single point also failed: a duplicate offset by 3 m is not "the same
+   * point", so it read as a genuine crossing.
+   */
+  const insideTarmac = (x, z, selfRi) => {
+    const bucket = grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)))
+    if (!bucket) return false
+    for (const p of bucket) {
+      if (p.ri === selfRi) continue
+      if (Math.hypot(x - p.x, z - p.z) < p.h) return true
+    }
+    return false
+  }
+
+  for (let ri = 0; ri < (roads || []).length; ri += 1) {
+    const road = roads[ri]
     const style = ROAD_STYLE[road.type]
     if (!style) continue
     const bucket = style.bucket
@@ -180,14 +252,47 @@ export const buildRoadSurface = (roads, ROAD_STYLE, toWorld) => {
       const mk = markingsFor(bucket, style.w)
 
       // --- kerb + sidewalk, both sides -----------------------------------
+      // Both are EDGE features, so a segment end sitting in another street's
+      // tarmac (a junction mouth) must not carry them. Split the segment at
+      // that crossing and keep only the run that is clear.
       for (const side of [1, -1]) {
         const eIn = side * halfW
         const eOut = side * (halfW + 0.25)
-        // Kerb top (a narrow cap) and its vertical face at the painted edge.
-        pushQuad(kerb, a.x, a.z, b.x, b.z, nx, nz, eIn, eOut, Y_KERB_TOP)
-        pushKerbFace(kerb, a.x, a.z, b.x, b.z, nx, nz, eIn, Y_TAR, Y_KERB_TOP)
-        // Sidewalk outboard of the kerb.
-        pushQuad(walk, a.x, a.z, b.x, b.z, nx, nz, eOut, side * (halfW + 0.25 + swW), Y_WALK)
+        const walkOut = side * (halfW + 0.25 + swW)
+        // Walk the segment in 0.5 m steps and emit only the clear runs, so a
+        // kerb that starts on a pavement, crosses a junction and resumes on
+        // the far pavement becomes two pieces instead of one ribbon through it.
+        const STEP = 0.5
+        const nSteps = Math.max(1, Math.ceil(len / STEP))
+        let runStart = -1
+        const flushRun = (tEnd) => {
+          if (runStart < 0) return
+          const ax = a.x + dx * runStart
+          const az = a.z + dz * runStart
+          const bx = a.x + dx * tEnd
+          const bz = a.z + dz * tEnd
+          // Never emit a zero/negative-length piece: a degenerate quad poisons
+          // the buffer with NaN normals and the whole mesh silently drops.
+          if (Math.hypot(bx - ax, bz - az) < 0.05) { runStart = -1; return }
+          pushQuad(kerb, ax, az, bx, bz, nx, nz, eIn, eOut, Y_KERB_TOP)
+          pushKerbFace(kerb, ax, az, bx, bz, nx, nz, eIn, Y_TAR, Y_KERB_TOP)
+          pushQuad(walk, ax, az, bx, bz, nx, nz, eOut, walkOut, Y_WALK)
+          runStart = -1
+        }
+        for (let s = 0; s <= nSteps; s += 1) {
+          const t1 = Math.min(1, s / nSteps)
+          const t0 = Math.max(0, (s - 1) / nSteps)
+          // Probe the kerb's own line, a little outboard where it actually sits.
+          const px = a.x + dx * t1 + nx * side * (halfW + 0.12)
+          const pz = a.z + dz * t1 + nz * side * (halfW + 0.12)
+          const blocked = insideTarmac(px, pz, ri)
+          if (!blocked) {
+            if (runStart < 0) runStart = t0
+          } else {
+            flushRun(t0)
+          }
+        }
+        flushRun(1)
       }
 
       // --- painted lines --------------------------------------------------
@@ -209,7 +314,15 @@ export const buildRoadSurface = (roads, ROAD_STYLE, toWorld) => {
         const dashLen = Math.min(DASH_LEN, step * 0.55)
         for (let d = 0; d < count; d += 1) {
           const t0 = d * step + (step - dashLen) / 2
-          const t1 = t0 + dashLen
+          // t0/t1 are FRACTIONS of the segment (they scale dx/dz below), but
+          // dashLen is in METRES. Adding metres to a normalized parameter makes
+          // a 2 m dash 2*len metres long — a 180 m avenue gets 360 m dashes
+          // that extrapolate clean off the end of the road, which is what drew
+          // the streaks across the map. Convert once, here.
+          const t1 = t0 + dashLen / len
+          // Belt-and-braces: never emit a dash past the end of the segment,
+          // whatever the rhythm maths above does on a short stub.
+          if (t1 > 1 || t0 >= 1) continue
           const ax = a.x + dx * t0
           const az = a.z + dz * t0
           const bx = a.x + dx * t1
@@ -412,3 +525,6 @@ export const planRoadFurniture = (roads, ROAD_STYLE, toWorld) => {
   const clear = props.filter((p) => nearestTarmac(p.x, p.z, roads, ROAD_STYLE, toWorld) > 0.05)
   return clear
 }
+
+
+
