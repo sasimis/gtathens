@@ -272,7 +272,7 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       ? -revSpd * power * Math.max(0.6, surfaceMul) * aB
       : 0
 
-    const tau = wantF || wantB ? tauNow : 0.22
+    const tau = (wantB && fwdV > 0.5) ? 0.12 : (wantF || wantB ? tauNow : 0.22)
     const lerpRate = 1 - Math.pow(0.0015, delta / tau)
     let newFwdV = fwdV + (targetFwd - fwdV) * lerpRate
     if (isBraking) {
@@ -307,7 +307,7 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     const steerRaw = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0) + gpS
     const steer = steerRaw
 
-    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
+    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 24))
 
     const absSpeed = Math.abs(fwdV)
     let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
@@ -318,11 +318,13 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       turnFactor *= 1.35
     }
 
-    // No gas = no turn: a stationary car can't steer. Scale the turn rate by
-    // how fast the car is actually rolling (reversing counts — real cars steer
-    // while rolling backward too); full authority from ~2 m/s upward.
-    const rolling = Math.min(1, absSpeed / 2)
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
+    // Steering authority at low speed / standstill: allow turning when launching or maneuvering
+    const rolling = (wantF || wantB || absSpeed > 0.1) ? Math.min(1, 0.45 + absSpeed / 1.2) : 0
+
+    // Reverse steering fix: when reversing (fwdV < -0.2 or wanting reverse), invert steering angular velocity
+    // so pressing Right (D) backs up to the Right and pressing Left (A) backs up to the Left.
+    const revDir = (fwdV < -0.2 || (wantB && fwdV < 0.2 && !wantF)) ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling * revDir
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
