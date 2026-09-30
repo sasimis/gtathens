@@ -318,11 +318,10 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       turnFactor *= 1.35
     }
 
-    // No gas = no turn: a stationary car can't steer. Scale the turn rate by
-    // how fast the car is actually rolling (reversing counts — real cars steer
-    // while rolling backward too); full authority from ~2 m/s upward.
-    const rolling = Math.min(1, absSpeed / 2)
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
+    // Low-speed steering responsiveness: allow turn authority even at near-stop when gas/reverse is requested
+    const rolling = (wantF || wantB) ? Math.min(1, Math.max(0.4, absSpeed / 1.5)) : Math.min(1, absSpeed / 1.5)
+    const moveDirSign = (fwdV < -0.15 || (wantB && !wantF && fwdV < 0.5)) ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling * moveDirSign
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
