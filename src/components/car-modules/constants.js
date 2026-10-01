@@ -40,18 +40,18 @@ export const CAR_COLLISION_GROUPS = GROUP_CAR | (FILTER_ALL << 16)
 export const PLAYER_COLLISION_GROUPS = GROUP_PLAYER | (FILTER_ALL << 16)
 
 // Crash tuning
-export const HIT_SPEED_MIN = 1.2
-export const HIT_FORCE_MIN = 20000
+export const HIT_SPEED_MIN = 0.8
+export const HIT_FORCE_MIN = 12000
 export const HIT_DEBOUNCE_MS = 250
-export const PUSH_MIN = 2.5
-export const PUSH_MAX = 12
+export const PUSH_MIN = 3.5
+export const PUSH_MAX = 16
 export const LOOSE_MAX_MS = 6000
 
 // Driving tuning — arcade GTA feel: higher top ends than the old sim values,
 // plus a nitro multiplier applied while the boost input is held.
-export const CAR_MAX_SPEED = 34
-export const CAR_REVERSE_MAX = 12
-export const CAR_TURN_RATE = 2.2
+export const CAR_MAX_SPEED = 38
+export const CAR_REVERSE_MAX = 14
+export const CAR_TURN_RATE = 2.6
 
 // Nitro (hold Shift / gamepad X): top-speed + accel multiplier.
 export const NITRO_SPEED_MUL = 1.5
@@ -61,27 +61,27 @@ export const FOV_SPEED_ADD = 6
 export const FOV_NITRO_ADD = 8
 
 export const CAR_TUNING = {
-  sports: { maxSpeed: 48, reverseMax: 15, turnRate: 2.7, accelTau: 0.18, grip: 0.90 },
-  roadster: { maxSpeed: 47, reverseMax: 14.5, turnRate: 2.7, accelTau: 0.19, grip: 0.90 },
-  'police-sports': { maxSpeed: 48, reverseMax: 15, turnRate: 2.7, accelTau: 0.18, grip: 0.90 },
-  muscle: { maxSpeed: 44, reverseMax: 14, turnRate: 2.5, accelTau: 0.20, grip: 0.87 },
-  'muscle-2': { maxSpeed: 44, reverseMax: 14, turnRate: 2.5, accelTau: 0.20, grip: 0.87 },
-  'police-muscle': { maxSpeed: 44, reverseMax: 14, turnRate: 2.5, accelTau: 0.20, grip: 0.87 },
-  sedan: { maxSpeed: 40, reverseMax: 13, turnRate: 2.4, accelTau: 0.22, grip: 0.91 },
-  taxi: { maxSpeed: 40, reverseMax: 13, turnRate: 2.4, accelTau: 0.22, grip: 0.91 },
-  hatchback: { maxSpeed: 39, reverseMax: 12.5, turnRate: 2.5, accelTau: 0.21, grip: 0.91 },
-  'police-sedan': { maxSpeed: 41, reverseMax: 13.5, turnRate: 2.5, accelTau: 0.21, grip: 0.91 },
-  suv: { maxSpeed: 38, reverseMax: 12.5, turnRate: 2.2, accelTau: 0.24, grip: 0.88 },
-  pickup: { maxSpeed: 38, reverseMax: 12.5, turnRate: 2.2, accelTau: 0.24, grip: 0.88 },
-  'police-suv': { maxSpeed: 39, reverseMax: 13, turnRate: 2.3, accelTau: 0.23, grip: 0.89 },
-  van: { maxSpeed: 35, reverseMax: 12, turnRate: 2.1, accelTau: 0.26, grip: 0.89 },
-  ambulance: { maxSpeed: 35, reverseMax: 12, turnRate: 2.1, accelTau: 0.26, grip: 0.89 },
-  bus: { maxSpeed: 32, reverseMax: 11, turnRate: 1.8, accelTau: 0.30, grip: 0.93 },
-  firetruck: { maxSpeed: 32, reverseMax: 11, turnRate: 1.8, accelTau: 0.30, grip: 0.93 },
-  truck: { maxSpeed: 33, reverseMax: 11.5, turnRate: 1.9, accelTau: 0.28, grip: 0.93 },
-  'truck-with-trailer': { maxSpeed: 30, reverseMax: 10.5, turnRate: 1.7, accelTau: 0.32, grip: 0.93 },
-  limousine: { maxSpeed: 37, reverseMax: 12, turnRate: 2.0, accelTau: 0.26, grip: 0.89 },
-  'monster-truck': { maxSpeed: 39, reverseMax: 13, turnRate: 2.4, accelTau: 0.22, grip: 0.85 },
+  sports: { maxSpeed: 52, reverseMax: 16, turnRate: 3.2, accelTau: 0.15, grip: 0.92 },
+  roadster: { maxSpeed: 50, reverseMax: 15.5, turnRate: 3.2, accelTau: 0.16, grip: 0.92 },
+  'police-sports': { maxSpeed: 52, reverseMax: 16, turnRate: 3.2, accelTau: 0.15, grip: 0.92 },
+  muscle: { maxSpeed: 46, reverseMax: 15, turnRate: 2.9, accelTau: 0.17, grip: 0.88 },
+  'muscle-2': { maxSpeed: 46, reverseMax: 15, turnRate: 2.9, accelTau: 0.17, grip: 0.88 },
+  'police-muscle': { maxSpeed: 46, reverseMax: 15, turnRate: 2.9, accelTau: 0.17, grip: 0.88 },
+  sedan: { maxSpeed: 42, reverseMax: 14, turnRate: 2.8, accelTau: 0.19, grip: 0.92 },
+  taxi: { maxSpeed: 42, reverseMax: 14, turnRate: 2.8, accelTau: 0.19, grip: 0.92 },
+  hatchback: { maxSpeed: 41, reverseMax: 13.5, turnRate: 2.9, accelTau: 0.18, grip: 0.92 },
+  'police-sedan': { maxSpeed: 43, reverseMax: 14.5, turnRate: 2.9, accelTau: 0.18, grip: 0.92 },
+  suv: { maxSpeed: 40, reverseMax: 13.5, turnRate: 2.6, accelTau: 0.20, grip: 0.90 },
+  pickup: { maxSpeed: 40, reverseMax: 13.5, turnRate: 2.6, accelTau: 0.20, grip: 0.90 },
+  'police-suv': { maxSpeed: 41, reverseMax: 14, turnRate: 2.7, accelTau: 0.19, grip: 0.90 },
+  van: { maxSpeed: 37, reverseMax: 13, turnRate: 2.4, accelTau: 0.22, grip: 0.90 },
+  ambulance: { maxSpeed: 37, reverseMax: 13, turnRate: 2.4, accelTau: 0.22, grip: 0.90 },
+  bus: { maxSpeed: 34, reverseMax: 12, turnRate: 2.1, accelTau: 0.25, grip: 0.94 },
+  firetruck: { maxSpeed: 34, reverseMax: 12, turnRate: 2.1, accelTau: 0.25, grip: 0.94 },
+  truck: { maxSpeed: 35, reverseMax: 12.5, turnRate: 2.2, accelTau: 0.24, grip: 0.94 },
+  'truck-with-trailer': { maxSpeed: 32, reverseMax: 11.5, turnRate: 2.0, accelTau: 0.27, grip: 0.94 },
+  limousine: { maxSpeed: 39, reverseMax: 13, turnRate: 2.3, accelTau: 0.22, grip: 0.90 },
+  'monster-truck': { maxSpeed: 41, reverseMax: 14, turnRate: 2.7, accelTau: 0.19, grip: 0.87 },
 }
 
 export const getCarTuning = (id) => {
