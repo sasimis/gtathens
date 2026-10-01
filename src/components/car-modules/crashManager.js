@@ -13,6 +13,7 @@ class CrashManager {
   bodyToSpot = new Map()
   setters = [] // React setState per spot
   lastHit = []
+  lastAiHit = []
   looseSince = []
   livePos = [] // {x,z} mutable objects, zero alloc per frame
   aiBodies = [] // raw rapier body per AI traffic index (Npcs.jsx registers)
@@ -44,6 +45,7 @@ class CrashManager {
     this.bodyToSpot.clear()
     this.setters.length = 0
     this.lastHit.length = 0
+    this.lastAiHit.length = 0
     this.looseSince.length = 0
     this.livePos.length = 0
     this.aiBodies.length = 0
@@ -298,7 +300,7 @@ export const knockLoose = (i, me, other, speed) => {
   if (hitter != null && hitter !== i) addDamage(hitter, Math.min(0.25, 0.03 + speed * 0.014))
 }
 
-export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) => {
+export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0, aiIndex = null) => {
   const me = payload?.target?.rigidBody
   const orb = payload?.other?.rigidBody
   if (!me) return
@@ -344,6 +346,32 @@ export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) 
       recordCrashFx(spotIndex, me, orb, speed, isBuilding && !isCar)
       const dmgAmt = Math.min(0.35, 0.04 + speed * 0.018)
       addDamage(spotIndex, dmgAmt)
+    }
+  }
+
+  // 3. Dynamic AI car colliding with building, environment, or other cars
+  if (aiIndex != null && aiIndex >= 0 && typeof me.isDynamic === 'function' && me.isDynamic()) {
+    const lv = me.linvel ? me.linvel() : { x: 0, z: 0 }
+    let speed = Math.hypot(lv.x, lv.z)
+    if (orb && typeof orb.linvel === 'function') {
+      const olv = orb.linvel()
+      speed = Math.max(speed, Math.hypot(lv.x - olv.x, lv.z - olv.z))
+    }
+    if (speed < HIT_SPEED_MIN) return
+    const now = performance.now()
+    if (now - (crash.lastAiHit[aiIndex] ?? 0) < HIT_DEBOUNCE_MS) return
+    if (viaForce && forceMag < HIT_FORCE_MIN) return
+
+    const otherCol = payload.other?.collider
+    const isBuilding = isBuildingCollider(otherCol)
+    const isCar = isCarCollider(otherCol)
+
+    if (isBuilding || isCar) {
+      crash.lastAiHit[aiIndex] = now
+      audio.crash(speed / 30)
+      recordCrashFx(aiIndex, me, orb, speed, isBuilding && !isCar)
+      const dmgAmt = Math.min(0.35, 0.04 + speed * 0.018)
+      addAiDamage(aiIndex, dmgAmt)
     }
   }
 }

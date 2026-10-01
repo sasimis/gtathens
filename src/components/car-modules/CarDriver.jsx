@@ -275,6 +275,17 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     const tau = wantF || wantB ? tauNow : 0.22
     const lerpRate = 1 - Math.pow(0.0015, delta / tau)
     let newFwdV = fwdV + (targetFwd - fwdV) * lerpRate
+
+    const nowMs = typeof performance !== 'undefined' ? performance.now() : 0
+    const lastHitTime = spotIndex != null && spotIndex >= 0
+      ? (crash.lastHit[spotIndex] ?? 0)
+      : aiIndex != null && aiIndex >= 0
+      ? (crash.lastAiHit[aiIndex] ?? 0)
+      : 0
+    if (nowMs - lastHitTime < 150) {
+      newFwdV *= 0.3
+    }
+
     if (isBraking) {
       // During a high-speed drift the handbrake only bleeds speed slowly (the
       // slide needs forward momentum to carry); otherwise brake hard to a stop.
@@ -310,7 +321,8 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
 
     const absSpeed = Math.abs(fwdV)
-    let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
+    const throttleActive = wantF || wantB
+    let turnFactor = throttleActive ? Math.max(0.75, Math.min(1, absSpeed / 3)) : Math.max(0.4, Math.min(1, absSpeed / 3))
     if (absSpeed > 16) {
       turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
     }
@@ -320,9 +332,12 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
 
     // No gas = no turn: a stationary car can't steer. Scale the turn rate by
     // how fast the car is actually rolling (reversing counts — real cars steer
-    // while rolling backward too); full authority from ~2 m/s upward.
-    const rolling = Math.min(1, absSpeed / 2)
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
+    // while rolling backward too); full authority from ~1.2 m/s upward or
+    // immediate responsive steering when applying throttle/brake pedal.
+    const rollingFloor = throttleActive ? 0.35 : 0
+    const rolling = Math.min(1, rollingFloor + Math.min(1, absSpeed / 1.2) * (1 - rollingFloor))
+    const steerDir = fwdV < -0.2 ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling * steerDir
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
