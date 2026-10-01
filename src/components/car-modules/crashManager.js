@@ -249,8 +249,8 @@ export const setRigidBodyType = (rb, type, rapierModule = null) => {
 
 // Records a crash FX event: lastCrash entry + pooled debris burst. Called
 // from BOTH knock-loose and driven-car damage paths so every visible impact
-// throws trim chunks and smoke, whether the victim was parked or driven.
-const recordCrashFx = (i, me, other, speed, isBuilding) => {
+// throws trim chunks and smoke, whether the victim was parked, driven, or AI.
+const recordCrashFx = (i, me, other, speed, isBuilding, isAi = false) => {
   let px = 0, py = 0.8, pz = 0, dx = 0, dz = 0
   try {
     const t = me.translation ? me.translation() : null
@@ -262,11 +262,18 @@ const recordCrashFx = (i, me, other, speed, isBuilding) => {
       if (len > 0.001) { dx /= len; dz /= len }
     }
   } catch {}
-  try {
-    crash.lastCrash[i] = { at: performance.now(), speed, x: px, y: py, z: pz }
-    const a = animState.spots[i]
-    if (a) { try { a.crashAt = performance.now() } catch { a.crashAt = 1 } }
-  } catch {}
+  if (i != null && i >= 0) {
+    try {
+      if (!isAi) {
+        crash.lastCrash[i] = { at: performance.now(), speed, x: px, y: py, z: pz }
+        const a = animState.spots[i]
+        if (a) { try { a.crashAt = performance.now() } catch { a.crashAt = 1 } }
+      } else {
+        const a = animState.ai[i]
+        if (a) { try { a.crashAt = performance.now() } catch { a.crashAt = 1 } }
+      }
+    } catch {}
+  }
   const hard = Math.min(1, speed / 18)
   const n = 3 + Math.round(hard * 9)
   try {
@@ -298,16 +305,19 @@ export const knockLoose = (i, me, other, speed) => {
   if (hitter != null && hitter !== i) addDamage(hitter, Math.min(0.25, 0.03 + speed * 0.014))
 }
 
-export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) => {
+export const crashHitFromPayload = (payload, spotIndex = null, viaForce = false, forceMag = 0, aiIndex = null) => {
   const me = payload?.target?.rigidBody
   const orb = payload?.other?.rigidBody
   if (!me) return
+
+  const isParked = spotIndex != null && spotIndex >= 0
+  const isAi = aiIndex != null && aiIndex >= 0
 
   // 1. Fixed car being hit by dynamic car (Parked car knock-loose path)
   if (typeof me.isFixed === 'function' && me.isFixed()) {
     if (!orb || typeof orb.isDynamic !== 'function' || !orb.isDynamic()) return
     if (!isCarCollider(payload.other?.collider)) return
-    if (spotIndex == null || spotIndex < 0 || crash.loose.has(spotIndex)) return
+    if (!isParked || crash.loose.has(spotIndex)) return
     const lv = orb.linvel ? orb.linvel() : { x: 0, z: 0 }
     const speed = Math.hypot(lv.x, lv.z)
     if (speed < HIT_SPEED_MIN) return
@@ -315,14 +325,14 @@ export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) 
     if (now - (crash.lastHit[spotIndex] ?? 0) < HIT_DEBOUNCE_MS) return
     if (viaForce && forceMag < HIT_FORCE_MIN) return
     crash.lastHit[spotIndex] = now
-    audio.crash(speed / 30) // GTA-style thump, louder the harder the ram
-    recordCrashFx(spotIndex, me, orb, speed, false)
+    audio.crash(Math.min(1, speed / 20)) // GTA-style thump
+    recordCrashFx(spotIndex, me, orb, speed, false, false)
     knockLoose(spotIndex, me, orb, speed)
     return
   }
 
   // 2. Dynamic / driven / loose car colliding with building, environment, AI traffic, or other cars
-  if (spotIndex != null && spotIndex >= 0 && typeof me.isDynamic === 'function' && me.isDynamic()) {
+  if ((isParked || isAi) && typeof me.isDynamic === 'function' && me.isDynamic()) {
     const lv = me.linvel ? me.linvel() : { x: 0, z: 0 }
     let speed = Math.hypot(lv.x, lv.z)
     if (orb && typeof orb.linvel === 'function') {
@@ -330,8 +340,9 @@ export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) 
       speed = Math.max(speed, Math.hypot(lv.x - olv.x, lv.z - olv.z))
     }
     if (speed < HIT_SPEED_MIN) return
+    const debounceKey = isParked ? spotIndex : `ai_${aiIndex}`
     const now = performance.now()
-    if (now - (crash.lastHit[spotIndex] ?? 0) < HIT_DEBOUNCE_MS) return
+    if (now - (crash.lastHit[debounceKey] ?? 0) < HIT_DEBOUNCE_MS) return
     if (viaForce && forceMag < HIT_FORCE_MIN) return
 
     const otherCol = payload.other?.collider
@@ -339,11 +350,35 @@ export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) 
     const isCar = isCarCollider(otherCol)
 
     if (isBuilding || isCar) {
-      crash.lastHit[spotIndex] = now
-      audio.crash(speed / 30)
-      recordCrashFx(spotIndex, me, orb, speed, isBuilding && !isCar)
-      const dmgAmt = Math.min(0.35, 0.04 + speed * 0.018)
-      addDamage(spotIndex, dmgAmt)
+      crash.lastHit[debounceKey] = now
+      audio.crash(Math.min(1, speed / 20))
+      if (isParked) {
+        recordCrashFx(spotIndex, me, orb, speed, isBuilding && !isCar, false)
+        addDamage(spotIndex, Math.min(0.35, 0.04 + speed * 0.018))
+      } else if (isAi) {
+        recordCrashFx(aiIndex, me, orb, speed, isBuilding && !isCar, true)
+        addAiDamage(aiIndex, Math.min(0.35, 0.04 + speed * 0.018))
+      }
+
+      // If hitting another AI traffic car, apply damage to the other car too
+      if (isCar && orb) {
+        for (let k = 0; k < crash.aiBodies.length; k += 1) {
+          if (crash.aiBodies[k] === orb) {
+            addAiDamage(k, Math.min(0.25, 0.03 + speed * 0.015))
+            break
+          }
+        }
+      }
+
+      try { combat.shake = Math.min(1.0, (combat.shake || 0) + speed * 0.018) } catch {}
+    }
+
+    // Car vs Pedestrian or Player on foot check
+    if (orb && speed > 2.5) {
+      try {
+        if (typeof crash.pedCheck === 'function') crash.pedCheck(orb, speed)
+        if (typeof crash.playerCheck === 'function') crash.playerCheck(orb, speed)
+      } catch {}
     }
   }
 }
