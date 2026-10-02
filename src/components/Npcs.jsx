@@ -1111,13 +1111,13 @@ const AiCar = ({ route, seed, index = 0 }) => {
         angularDamping={2.0}
         onCollisionEnter={(p) => { try { audio.crash(0.3) } catch { /* ignore */ } }}
       >
-        <CuboidCollider args={[half[0] + 0.05, half[1] + 0.05, half[2] + 0.05]} friction={0.7} restitution={0.20} />
+        <CuboidCollider args={[half[0] + 0.12, half[1] + 0.08, half[2] + 0.15]} friction={0.7} restitution={0.20} />
       </RigidBody>
       <group position={[0, 0, 0]}>
         <Suspense fallback={null}>
           <CarModel id={carId} />
           {/* Same spinning wheels + brake lights as the player's car */}
-          <CarWheels half={[half[0] + 0.05, half[1] + 0.05, half[2] + 0.05]} carId={carId} aiIndex={index} />
+          <CarWheels half={[half[0] + 0.12, half[1] + 0.08, half[2] + 0.15]} carId={carId} aiIndex={index} />
         </Suspense>
       </group>
     </group>
