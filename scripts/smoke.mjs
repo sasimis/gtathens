@@ -210,6 +210,8 @@ const main = async () => {
   await page.send('Runtime.enable')
   await page.send('Log.enable')
   await page.send('Page.enable')
+  await page.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+  await page.send('Page.bringToFront')
   await page.send('Page.navigate', { url: TARGET_URL })
 
   console.log(`booting ${TARGET_URL} for ${BOOT_SECONDS}s ...`)
