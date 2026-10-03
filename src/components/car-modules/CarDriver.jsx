@@ -310,19 +310,20 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
 
     const absSpeed = Math.abs(fwdV)
-    let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
+    let turnFactor = Math.max(0.55, Math.min(1, absSpeed / 3.0))
     if (absSpeed > 16) {
-      turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
+      turnFactor *= Math.max(0.82, 1 - (absSpeed - 16) * 0.018)
     }
     if (isBraking && absSpeed > 2) {
       turnFactor *= 1.35
     }
 
-    // No gas = no turn: a stationary car can't steer. Scale the turn rate by
-    // how fast the car is actually rolling (reversing counts — real cars steer
-    // while rolling backward too); full authority from ~2 m/s upward.
-    const rolling = Math.min(1, absSpeed / 2)
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
+    // Scale turn rate by rolling speed with quick low-speed authority from ~0.8 m/s.
+    const rolling = Math.min(1, absSpeed / 0.8)
+    // Invert turn direction when rolling in reverse so pressing Right (D) turns
+    // the car's reverse trajectory to the Right (rear swings right, nose swings left).
+    const reverseFactor = fwdV < -0.1 ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling * reverseFactor
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
@@ -362,10 +363,10 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
 
     if (modelRef?.current) {
       const accelAmt = (newFwdV - fwdV) / Math.max(0.01, delta)
-      const pitchTarget = Math.max(-0.06, Math.min(0.06, -accelAmt * 0.003))
-      const rollTarget = Math.max(-0.08, Math.min(0.08, -steerRef.current * (planarSpeed / 15) * 0.05))
-      modelRef.current.rotation.x = THREE.MathUtils.lerp(modelRef.current.rotation.x, pitchTarget, Math.min(1, delta * 8))
-      modelRef.current.rotation.z = THREE.MathUtils.lerp(modelRef.current.rotation.z, rollTarget, Math.min(1, delta * 8))
+      const pitchTarget = Math.max(-0.09, Math.min(0.09, -accelAmt * 0.004))
+      const rollTarget = Math.max(-0.11, Math.min(0.11, -steerRef.current * Math.min(1.2, planarSpeed / 12) * 0.06))
+      modelRef.current.rotation.x = THREE.MathUtils.lerp(modelRef.current.rotation.x, pitchTarget, Math.min(1, delta * 10))
+      modelRef.current.rotation.z = THREE.MathUtils.lerp(modelRef.current.rotation.z, rollTarget, Math.min(1, delta * 10))
     }
   })
 
@@ -388,7 +389,11 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       }
     }
     const up = (e) => { const a = KEY_MAP[e.code]; if (a && a !== 'horn') keys.current[a] = false }
-    const blur = () => Object.keys(keys.current).forEach((k) => (keys.current[k] = false))
+    const blur = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        Object.keys(keys.current).forEach((k) => (keys.current[k] = false))
+      }
+    }
     const onExit = (e) => {
       const isExit = e.code === 'KeyF' || e.code === 'KeyY'
       if (!isExit || e.repeat) return
