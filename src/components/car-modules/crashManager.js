@@ -24,6 +24,7 @@ class CrashManager {
   explodedAi = new Set() // AI traffic indices whose damage hit 100%
   explosions = 0 // total booms this session (QA: window.__gtathensBoom.count())
   lastExplosion = { at: 0, x: 0, y: 0, z: 0 } // stable record, mutated in place
+  recoilSpeed = 0 // set on heavy obstacle impact for CarDriver recoil
 
   setLive(i, x, z) {
     if (!this.livePos[i]) this.livePos[i] = { x, z }
@@ -344,6 +345,9 @@ export const crashHitFromPayload = (payload, spotIndex, viaForce, forceMag = 0) 
       recordCrashFx(spotIndex, me, orb, speed, isBuilding && !isCar)
       const dmgAmt = Math.min(0.35, 0.04 + speed * 0.018)
       addDamage(spotIndex, dmgAmt)
+      if (speed > 2.5) {
+        crash.recoilSpeed = speed
+      }
     }
   }
 }

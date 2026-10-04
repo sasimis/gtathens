@@ -14,16 +14,16 @@ export const CAR_IDS = [
 ]
 
 export const HALF = {
-  sedan: [0.95, 0.71, 2.49], 'sedan-blue': [0.9, 0.71, 2.41],
-  'sedan-darkred': [0.9, 0.71, 2.41],
-  sports: [0.95, 0.72, 2.49], 'sports-yellow': [0.95, 0.72, 2.49],
-  'sports-stripe': [0.95, 0.71, 2.49],
-  muscle: [1.0, 0.77, 2.35], 'muscle-black': [0.9, 0.69, 2.41],
-  'muscle-green': [1.0, 0.77, 2.35], 'muscle-teal': [1.0, 0.79, 2.35],
-  suv: [1.19, 1.02, 2.6], 'suv-black': [1.19, 1.02, 2.6],
-  'suv-green': [1.19, 1.02, 2.6], 'suv-teal': [1.19, 1.0, 2.55],
-  'suv-yellow': [1.19, 1.01, 2.55], 'suv-blue': [1.19, 1.01, 2.55],
-  'suv-orange': [1.19, 1.02, 2.6], 'suv-red': [1.19, 1.02, 2.6],
+  sedan: [1.02, 0.75, 2.58], 'sedan-blue': [0.98, 0.75, 2.50],
+  'sedan-darkred': [0.98, 0.75, 2.50],
+  sports: [1.02, 0.75, 2.58], 'sports-yellow': [1.02, 0.75, 2.58],
+  'sports-stripe': [1.02, 0.75, 2.58],
+  muscle: [1.08, 0.80, 2.45], 'muscle-black': [0.98, 0.72, 2.50],
+  'muscle-green': [1.08, 0.80, 2.45], 'muscle-teal': [1.08, 0.82, 2.45],
+  suv: [1.27, 1.05, 2.70], 'suv-black': [1.27, 1.05, 2.70],
+  'suv-green': [1.27, 1.05, 2.70], 'suv-teal': [1.27, 1.03, 2.65],
+  'suv-yellow': [1.27, 1.04, 2.65], 'suv-blue': [1.27, 1.04, 2.65],
+  'suv-orange': [1.27, 1.05, 2.70], 'suv-red': [1.27, 1.05, 2.70],
 }
 
 // Nothing in the new pack is oversized (longest = 5.2 m SUV) � kept as an

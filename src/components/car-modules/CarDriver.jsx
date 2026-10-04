@@ -11,6 +11,8 @@ import { crash, isOnAsphalt, aiDamage, setAiCarOccupied, setRigidBodyType } from
 import { combat } from '../../lib/combat'
 import { setAnimSpot } from './carVisuals.js'
 import { audio } from '../../lib/audio'
+import { NPC_RECORDS, NPC_KILL_TOAST } from '../Npcs.jsx'
+import { spawnDrop } from '../Pickups.jsx'
 
 const q = new THREE.Quaternion()
 const fwd = new THREE.Vector3()
@@ -272,7 +274,13 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       ? -revSpd * power * Math.max(0.6, surfaceMul) * aB
       : 0
 
-    const tau = wantF || wantB ? tauNow : 0.22
+    // Punchy low-end torque curve for quick launching
+    let accelMult = 1.0
+    if ((wantF || wantB) && absSpeed < 14) {
+      accelMult = 1.4 - (absSpeed / 14) * 0.4
+    }
+
+    const tau = wantF || wantB ? tauNow / accelMult : 0.22
     const lerpRate = 1 - Math.pow(0.0015, delta / tau)
     let newFwdV = fwdV + (targetFwd - fwdV) * lerpRate
     if (isBraking) {
@@ -300,6 +308,47 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       try { audio.screech(Math.min(1, planarSpeed / 14)) } catch { /* silent */ }
     }
 
+    // --- Impact recoil from heavy wall / car hits ------------------------
+    if (crash.recoilSpeed > 2.5) {
+      const recoilMag = Math.min(5.5, crash.recoilSpeed * 0.28)
+      newFwdV = -Math.sign(fwdV || 1) * recoilMag
+      crash.recoilSpeed = 0
+      combat.shake = Math.max(combat.shake || 0, 0.35)
+    }
+
+    // --- Driven car vs Pedestrian collision & ramming ------------------
+    if (planarSpeed > 2.2 && phaseRef.current === Phase.PLAYING && Array.isArray(NPC_RECORDS)) {
+      const halfL = half ? half[2] + 0.6 : 2.8
+      const halfW = half ? half[0] + 0.4 : 1.5
+      for (let k = 0; k < NPC_RECORDS.length; k += 1) {
+        const nr = NPC_RECORDS[k]
+        if (!nr || nr.dead || !nr.rb || typeof nr.rb.translation !== 'function') continue
+        let pt = null
+        try { pt = nr.rb.translation() } catch { pt = null }
+        if (!pt) continue
+        const dx = pt.x - tNow.x
+        const dz = pt.z - tNow.z
+        const distSq = dx * dx + dz * dz
+        if (distSq < halfL * halfL + halfW * halfW) {
+          nr.dead = true
+          nr.deadAt = performance.now()
+          try {
+            audio.crash(0.6)
+            spawnDrop('money', pt.x, pt.z, 12 + Math.floor(Math.random() * 25))
+            spawnDrop('ammo', pt.x + 0.4, pt.z + 0.3, 10 + Math.floor(Math.random() * 20))
+            const gs = useGameStore.getState()
+            if (typeof gs.pushToast === 'function') gs.pushToast(NPC_KILL_TOAST, 'info')
+            if (typeof gs.addKill === 'function') gs.addKill()
+            if (typeof gs.addMoney === 'function') gs.addMoney(25)
+            combat.shake = Math.max(combat.shake || 0, 0.3)
+            const rp = getDrivePad()
+            if (rp) vibrateGamepad(rp, 150, 0.8, 0.8)
+          } catch {}
+          newFwdV *= 0.82
+        }
+      }
+    }
+
     const newVx = fwd.x * newFwdV + right.x * newSideV
     const newVz = fwd.z * newFwdV + right.z * newSideV
     rb.setLinvel({ x: newVx, y: v.y, z: newVz }, true)
@@ -310,19 +359,22 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
 
     const absSpeed = Math.abs(fwdV)
-    let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
+    let turnFactor = Math.max(0.5, Math.min(1, absSpeed / 3.5))
     if (absSpeed > 16) {
-      turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
+      turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.025)
     }
     if (isBraking && absSpeed > 2) {
-      turnFactor *= 1.35
+      turnFactor *= 1.45
     }
 
-    // No gas = no turn: a stationary car can't steer. Scale the turn rate by
-    // how fast the car is actually rolling (reversing counts — real cars steer
-    // while rolling backward too); full authority from ~2 m/s upward.
-    const rolling = Math.min(1, absSpeed / 2)
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
+    // Steering authority: full authority at low speeds when pedal/throttle is active
+    // so starting, parking, and 3-point turns feel responsive.
+    let rolling = Math.min(1, absSpeed / 1.2)
+    if ((wantF || wantB) && rolling < 0.65) {
+      rolling = 0.65
+    }
+    const revMult = fwdV < -0.2 ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling * revMult
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
