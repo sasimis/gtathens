@@ -294,11 +294,11 @@ const TrafficCar = ({ route, lights, index }) => {
         linearDamping={0.5}
         angularDamping={2.0}
       >
-        <CuboidCollider args={[half[0] + 0.05, half[1] + 0.05, half[2] + 0.05]} friction={0.7} restitution={0.2} />
+        <CuboidCollider args={[half[0] + 0.15, half[1] + 0.10, half[2] + 0.15]} friction={0.7} restitution={0.2} />
       </RigidBody>
       <Suspense fallback={null}>
         <CarModel id={carId} />
-        <CarWheels half={[half[0] + 0.05, half[1] + 0.05, half[2] + 0.05]} carId={carId} aiIndex={index} />
+        <CarWheels half={[half[0] + 0.15, half[1] + 0.10, half[2] + 0.15]} carId={carId} aiIndex={index} />
       </Suspense>
     </group>
   )
