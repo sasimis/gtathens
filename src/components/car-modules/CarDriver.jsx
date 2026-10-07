@@ -310,19 +310,24 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
 
     const absSpeed = Math.abs(fwdV)
-    let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
-    if (absSpeed > 16) {
-      turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
+    let turnFactor = Math.max(0.6, Math.min(1.1, absSpeed / 3.5))
+    if (absSpeed > 18) {
+      turnFactor *= Math.max(0.75, 1 - (absSpeed - 18) * 0.02)
     }
     if (isBraking && absSpeed > 2) {
       turnFactor *= 1.35
     }
 
-    // No gas = no turn: a stationary car can't steer. Scale the turn rate by
-    // how fast the car is actually rolling (reversing counts — real cars steer
-    // while rolling backward too); full authority from ~2 m/s upward.
-    const rolling = Math.min(1, absSpeed / 2)
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
+    // Low speed maneuverability: scale turn authority smoothly. Give immediate
+    // response when accelerating/reversing out of tight spots.
+    const rolling = (wantF || wantB)
+      ? Math.min(1, Math.max(0.4, absSpeed / 1.5))
+      : Math.min(1, absSpeed / 1.5)
+
+    // Reverse gear sign flip: when rolling backward (fwdV < -0.1), invert angY
+    // so turning Left/Right in reverse turns the vehicle intuitively.
+    const gearSign = fwdV < -0.1 ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling * gearSign
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
