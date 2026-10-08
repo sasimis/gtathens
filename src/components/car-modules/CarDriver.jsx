@@ -275,10 +275,20 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     const tau = wantF || wantB ? tauNow : 0.22
     const lerpRate = 1 - Math.pow(0.0015, delta / tau)
     let newFwdV = fwdV + (targetFwd - fwdV) * lerpRate
+
+    // Active braking when pressing opposite pedal (e.g. Reverse while moving Forward)
+    if (wantB && fwdV > 0.5) {
+      const activeBrakeDecel = 22 * aB * power
+      newFwdV = Math.max(0, fwdV - activeBrakeDecel * delta)
+    } else if (wantF && fwdV < -0.5) {
+      const activeBrakeDecel = 22 * aF * power
+      newFwdV = Math.min(0, fwdV + activeBrakeDecel * delta)
+    }
+
     if (isBraking) {
       // During a high-speed drift the handbrake only bleeds speed slowly (the
       // slide needs forward momentum to carry); otherwise brake hard to a stop.
-      const driftDecel = planarSpeed > 6.0 && Math.abs(fwdV) > 4.0 ? 0.9 : 6
+      const driftDecel = planarSpeed > 6.0 && Math.abs(fwdV) > 4.0 ? 0.9 : 24
       newFwdV = Math.abs(fwdV) > 0.4 ? fwdV * Math.max(0, 1 - driftDecel * delta) : 0
     }
 
@@ -310,7 +320,7 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
 
     const absSpeed = Math.abs(fwdV)
-    let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
+    let turnFactor = Math.max(0.65, Math.min(1, absSpeed / 3.5))
     if (absSpeed > 16) {
       turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
     }
@@ -318,11 +328,12 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
       turnFactor *= 1.35
     }
 
-    // No gas = no turn: a stationary car can't steer. Scale the turn rate by
-    // how fast the car is actually rolling (reversing counts — real cars steer
-    // while rolling backward too); full authority from ~2 m/s upward.
-    const rolling = Math.min(1, absSpeed / 2)
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
+    // Scale turn rate by rolling speed with strong authority even at low speeds for tight maneuvers
+    const rolling = Math.min(1, Math.max(0.35, absSpeed / 0.8))
+    // When rolling backwards in reverse, invert steering angular velocity so
+    // pressing Right (D) turns the rear to the Right and Left (A) turns the rear to the Left.
+    const reverseDir = fwdV < -0.1 ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling * reverseDir
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
