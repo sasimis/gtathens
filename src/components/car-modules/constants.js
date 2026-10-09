@@ -50,8 +50,8 @@ export const LOOSE_MAX_MS = 6000
 // Driving tuning — arcade GTA feel: higher top ends than the old sim values,
 // plus a nitro multiplier applied while the boost input is held.
 export const CAR_MAX_SPEED = 34
-export const CAR_REVERSE_MAX = 12
-export const CAR_TURN_RATE = 2.2
+export const CAR_REVERSE_MAX = 14
+export const CAR_TURN_RATE = 2.5
 
 // Nitro (hold Shift / gamepad X): top-speed + accel multiplier.
 export const NITRO_SPEED_MUL = 1.5
@@ -86,5 +86,5 @@ export const CAR_TUNING = {
 
 export const getCarTuning = (id) => {
   const key = id ? id.toLowerCase() : 'sedan'
-  return CAR_TUNING[key] || { maxSpeed: CAR_MAX_SPEED, reverseMax: CAR_REVERSE_MAX, turnRate: CAR_TURN_RATE, accelTau: 0.35, grip: 0.90 }
+  return CAR_TUNING[key] || { maxSpeed: CAR_MAX_SPEED, reverseMax: CAR_REVERSE_MAX, turnRate: CAR_TURN_RATE, accelTau: 0.22, grip: 0.90 }
 }
