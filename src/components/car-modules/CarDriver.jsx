@@ -266,19 +266,26 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     const revSpd = tuning.reverseMax * (nitroNow ? 1.15 : 1)
     const tauNow = tuning.accelTau / (nitroNow ? NITRO_ACCEL_MUL : 1)
 
+    // Service braking: holding S/LT while moving forward acts as strong foot brake before reversing
+    const isServiceBraking = wantB && fwdV > 1.0
+
     const targetFwd = wantF
       ? maxSpd * power * surfaceMul * aF
-      : wantB
+      : wantB && !isServiceBraking
       ? -revSpd * power * Math.max(0.6, surfaceMul) * aB
       : 0
 
-    const tau = wantF || wantB ? tauNow : 0.22
+    const tau = wantF || (wantB && !isServiceBraking) ? tauNow : 0.22
     const lerpRate = 1 - Math.pow(0.0015, delta / tau)
     let newFwdV = fwdV + (targetFwd - fwdV) * lerpRate
-    if (isBraking) {
+    if (isServiceBraking) {
+      // Rapid foot brake deceleration when moving forward and pressing reverse/back
+      const brakeDecel = 16 * delta
+      newFwdV = Math.max(0, fwdV - brakeDecel * Math.max(0.8, aB))
+    } else if (isBraking) {
       // During a high-speed drift the handbrake only bleeds speed slowly (the
       // slide needs forward momentum to carry); otherwise brake hard to a stop.
-      const driftDecel = planarSpeed > 6.0 && Math.abs(fwdV) > 4.0 ? 0.9 : 6
+      const driftDecel = planarSpeed > 6.0 && Math.abs(fwdV) > 4.0 ? 0.9 : 10
       newFwdV = Math.abs(fwdV) > 0.4 ? fwdV * Math.max(0, 1 - driftDecel * delta) : 0
     }
 
@@ -307,22 +314,22 @@ export const CarDriver = ({ bodyRef, modelRef, spotIndex = null, half = null, ai
     const steerRaw = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0) + gpS
     const steer = steerRaw
 
-    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 16))
+    steerRef.current = THREE.MathUtils.lerp(steerRef.current, steer, Math.min(1, delta * 20))
 
     const absSpeed = Math.abs(fwdV)
-    let turnFactor = Math.max(0.4, Math.min(1, absSpeed / 4))
+    let turnFactor = Math.max(0.5, Math.min(1.1, absSpeed / 3.5))
     if (absSpeed > 16) {
-      turnFactor *= Math.max(0.7, 1 - (absSpeed - 16) * 0.03)
+      turnFactor *= Math.max(0.72, 1 - (absSpeed - 16) * 0.025)
     }
-    if (isBraking && absSpeed > 2) {
+    if ((isBraking || isServiceBraking) && absSpeed > 2) {
       turnFactor *= 1.35
     }
 
-    // No gas = no turn: a stationary car can't steer. Scale the turn rate by
-    // how fast the car is actually rolling (reversing counts — real cars steer
-    // while rolling backward too); full authority from ~2 m/s upward.
-    const rolling = Math.min(1, absSpeed / 2)
-    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling
+    // Gas/reverse gives immediate turn authority even when starting from a stop
+    const rolling = (wantF || wantB) ? Math.max(0.6, Math.min(1, absSpeed / 1.5)) : Math.min(1, absSpeed / 1.5)
+    // Invert turn direction when reversing so steering left backs the rear to the left.
+    const reverseFactor = fwdV < -0.2 ? -1 : 1
+    const angY = -steerRef.current * baseTurnRate * turnFactor * (1 - 0.3 * dmg) * rolling * reverseFactor
     rb.setAngvel({ x: 0, y: angY, z: 0 }, true)
 
     // Feed the visual layer (CarAnim wheels/suspension + brake lights) + FOV.
