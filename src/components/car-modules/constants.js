@@ -86,5 +86,5 @@ export const CAR_TUNING = {
 
 export const getCarTuning = (id) => {
   const key = id ? id.toLowerCase() : 'sedan'
-  return CAR_TUNING[key] || { maxSpeed: CAR_MAX_SPEED, reverseMax: CAR_REVERSE_MAX, turnRate: CAR_TURN_RATE, accelTau: 0.35, grip: 0.90 }
+  return CAR_TUNING[key] || { maxSpeed: CAR_MAX_SPEED, reverseMax: CAR_REVERSE_MAX, turnRate: CAR_TURN_RATE, accelTau: 0.22, grip: 0.90 }
 }
